@@ -5,8 +5,9 @@ import { buildQuestions } from "./deezer.js";
 
 const ROUND_OPTIONS = [5, 10, 15, 20];
 const SECOND_OPTIONS = [10, 15, 20, 30];
+const GENRES = ["Pop", "Rap", "Rock", "Latino", "R&B", "Electronic", "K-Pop", "Country", "Metal"];
 
-export default function HostSetup({ room, picked, setPicked, playerStatus, playerRef }) {
+export default function HostSetup({ room, picked, setPicked, playerStatus, playerRef, onCopyLink, onLeave }) {
   const [playlists, setPlaylists] = useState(null);
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState(false);
@@ -65,8 +66,13 @@ export default function HostSetup({ room, picked, setPicked, playerStatus, playe
 
   const shown = playlists || [];
   return (
-    <div className="stack">
-      <section className="card">
+    <div className="stack choose-quiz">
+      <header className="setup-header">
+        <div className="brand-mark"><span>SONG</span><strong>TRIVIA</strong></div>
+        <div className="step-flow"><span>⚙ &nbsp; Configuration</span><b>→</b><strong>♫ &nbsp; Choose Quiz</strong><b>→</b><span>▶ &nbsp; Play</span></div>
+        <div className="room-pill"><small>ROOM</small><strong>{room.code}</strong><span>◉</span><b>♧ &nbsp; Private</b><button className="btn small invite-btn" onClick={onCopyLink}>Invite</button><button className="btn small ghost" onClick={onLeave}>Exit</button></div>
+      </header>
+      <section className="card settings-card">
         <h2>ตั้งค่าห้อง</h2>
         <div className="row">
           <label className="field"><span>จำนวนข้อ</span><select value={room.settings.rounds} onChange={(event) => setSetting({ rounds: Number(event.target.value) })}>{ROUND_OPTIONS.map((n) => <option key={n} value={n}>{n} ข้อ</option>)}</select></label>
@@ -74,14 +80,15 @@ export default function HostSetup({ room, picked, setPicked, playerStatus, playe
         </div>
       </section>
 
-      <section className="card">
-        <h2>เลือกเพลย์ลิสต์จาก Deezer</h2>
+      <section className="card catalog-card">
+        <div className="catalog-heading"><div><span className="eyebrow">BUILD YOUR ROUND</span><h2>Choose a playlist</h2><p className="hint">Search Deezer playlists or pick a genre to get started.</p></div><span className="source-badge">♫ &nbsp; DEEZER</span></div>
         <p className="hint">Deezer มีคลิปตัวอย่างสูงสุด 30 วินาที ตั้งเวลา 30 วินาทีเพื่อฟังคลิปได้เต็มช่วง</p>
         {sources.length > 0 && <div className="picked">
           <div className="chips">{sources.map((source) => <span className="chip" key={source.key}><em>Deezer</em>{source.name}<span className="muted"> · {source.tracks.length} เพลง</span><button className="x" onClick={() => remove(source.key)} aria-label={`นำ ${source.name} ออก`}>×</button></span>)}</div>
           <span className="muted small">รวม {pool.length} เพลง{pool.length < 4 ? " · ต้องมีอย่างน้อย 4 เพลง" : ` · เล่น ${Math.min(room.settings.rounds, pool.length)} ข้อ`}</span>
         </div>}
         <input className="input" placeholder="ค้นหาเพลย์ลิสต์ เช่น pop hits, k-pop…" value={filter} onChange={(event) => setFilter(event.target.value)} />
+        <div className="genre-pills">{GENRES.map((genre) => <button key={genre} type="button" className={filter.toLowerCase() === genre.toLowerCase() ? "genre-pill active" : "genre-pill"} onClick={() => setFilter(genre)}>{genre}</button>)}</div>
         <ul className="playlists">
           {playlists === null && <li className="muted">กำลังค้นหาเพลย์ลิสต์…</li>}
           {playlists && shown.length === 0 && <li className="muted">ไม่พบเพลย์ลิสต์ ลองค้นคำอื่น</li>}

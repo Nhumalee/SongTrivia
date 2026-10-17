@@ -154,55 +154,62 @@ function Leaderboard({ list, meId, compact }) {
 function Home({ name, setName, busy, error, initialCode, onCreate, onJoin }) {
   const [code, setCode] = useState(initialCode || "");
   return (
-    <div className="home">
-      <div className="logo">♪</div>
-      <h1>ทายเพลง</h1>
-      <p className="tag">เล่นกับเพื่อน ฟังคลิปเพลงจาก Deezer แล้วแข่งกันทายให้เร็วที่สุด</p>
+    <div className="home home-screen">
+      <header className="home-topbar">
+        <div className="brand-mark"><span>SONG</span><strong>TRIVIA</strong></div>
+        <h1>Play with <em>friends</em></h1>
+        <span className="language-pill">◎ &nbsp; EN <b>⌄</b></span>
+      </header>
 
-      <section className="card">
-        <label className="field">
-          <span>ชื่อของคุณ</span>
-          <input
-            className="input"
-            maxLength={16}
-            placeholder="เช่น มะลิ"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
+      <div className="side-note side-note-left">PLAY<br />LISTEN<br />GUESS<br />TOGETHER<br /><span>♡</span></div>
+      <div className="side-note side-note-right">GOOD<br />MUSIC<br />BETTER<br />PEOPLE<br /><span>♡</span></div>
+      <div className="floating-note note-left">♫</div>
+      <div className="floating-note note-right">♫</div>
+      <div className="equalizer equalizer-left" aria-hidden="true">{Array.from({ length: 7 }, (_, i) => <i key={i} style={{ "--bar": (35 + ((i * 23) % 65)) + "%" }} />)}</div>
+      <div className="equalizer equalizer-right" aria-hidden="true">{Array.from({ length: 7 }, (_, i) => <i key={i} style={{ "--bar": (35 + (((6 - i) * 23) % 65)) + "%" }} />)}</div>
+
+      <main className="home-main">
+        <label className="nickname-field">
+          <span>Your player name</span>
+          <input className="input" maxLength={16} placeholder="Enter your name" value={name} onChange={(e) => setName(e.target.value)} />
         </label>
-      </section>
+        <div className="home-cards">
+          <section className="action-card create-card">
+            <div className="hero-art friends-art" aria-hidden="true"><span>👧🏻</span><span>👩🏼‍🎤</span><span>🧑🏽‍🎤</span><b>♟＋</b></div>
+            <h2>Create a <em>private lobby</em></h2>
+            <p>Create a lobby and invite your friends to play together in real time.</p>
+            <button className="btn lobby-cta" disabled={busy || !name.trim()} onClick={onCreate}>
+              <span>⊕</span>{busy ? "Creating lobby…" : "Create my lobby"}<b>›</b>
+            </button>
+          </section>
 
-      <section className="card">
-        <h2>เข้าร่วมห้องของเพื่อน</h2>
-        <div className="row">
-          <input
-            className="input code"
-            maxLength={4}
-            placeholder="รหัส 4 ตัว"
-            value={code}
-            onChange={(e) => setCode(e.target.value.toUpperCase())}
-            onKeyDown={(e) => e.key === "Enter" && onJoin(code)}
-          />
-          <button className="btn primary" disabled={busy || code.length < 4 || !name.trim()} onClick={() => onJoin(code)}>
-            เข้าห้อง
-          </button>
+          <section className="action-card join-card">
+            <div className="hero-art envelope-art" aria-hidden="true"><span>✉</span><b>{code || "1234"}</b><i>✦</i><i>✦</i></div>
+            <h2>Join with a <em>code</em></h2>
+            <input
+              className="input join-code"
+              autoComplete="off"
+              maxLength={4}
+              aria-label="Four digit room code"
+              placeholder="— — — —"
+              value={code}
+              onChange={(e) => {
+                const next = e.target.value.replace(/[^a-z0-9]/gi, "").slice(0, 4).toUpperCase();
+                setCode(next);
+                if (next.length === 4 && name.trim() && !busy) onJoin(next);
+              }}
+              onKeyDown={(e) => e.key === "Enter" && code.length === 4 && onJoin(code)}
+            />
+            <p className="join-hint">Enter the 4-digit code to join the lobby automatically.</p>
+          </section>
         </div>
-        <p className="hint">ผู้เล่นไม่ต้องสมัครหรือล็อกอินบริการเพลง</p>
-      </section>
+        {error && <div className="alert home-alert">{error}</div>}
+      </main>
 
-      <section className="card">
-        <h2>สร้างห้องเอง (Host)</h2>
-        <p className="hint">สร้างห้อง แล้วเลือกเพลย์ลิสต์สาธารณะจาก Deezer ในหน้าห้อง</p>
-        <button className="btn primary big" disabled={busy || !name.trim()} onClick={onCreate}>
-          {busy ? "กำลังสร้างห้อง…" : "สร้างห้อง แล้วเลือกเพลง"}
-        </button>
-      </section>
-
-      {error && <div className="alert">{error}</div>}
+      <footer className="home-footer"><span>🌙</span><div><strong>Shh, the ad is taking a nap</strong><small>Enjoy the quiet and keep playing 🎶</small></div></footer>
     </div>
   );
 }
-
 // ---------- แอปหลัก ----------
 export default function App() {
   const [name, setName] = useState(() => localStorage.getItem("st_name") || "");
@@ -390,7 +397,7 @@ export default function App() {
 
   return (
     <div className="room">
-      <header className="top">
+      {!(isHost && phase === "lobby") && <header className="top">
         <div>
           <span className="muted small">รหัสห้อง</span>
           <div className="roomcode">{room.code}</div>
@@ -403,7 +410,7 @@ export default function App() {
             ออก
           </button>
         </div>
-      </header>
+      </header>}
 
       {toast && <div className="toast">{toast}</div>}
 
@@ -461,6 +468,8 @@ export default function App() {
               setPicked={setPicked}
               playerStatus={playerStatus}
               playerRef={playerRef}
+              onCopyLink={copyLink}
+              onLeave={leave}
             />
           ) : (
             <section className="card center-text">
