@@ -29,7 +29,7 @@ function usePlayer(enabled, onError) {
   const effRef = useRef(effective);
   effRef.current = effective;
   useEffect(() => {
-    if (ref.current) ref.current.volume = effective;
+    ref.current?.setVolume(effective);
   }, [effective, status]);
   const setVolume = (v) => {
     setVolumeState(v);
@@ -73,7 +73,10 @@ function usePlayer(enabled, onError) {
         else audio.onloadedmetadata = start;
       },
       pause: () => audio.pause(),
-      setVolume: (value) => { audio.volume = value; },
+      setVolume: (value) => {
+        audio.volume = value;
+        audio.muted = value === 0;
+      },
       disconnect: () => { audio.pause(); audio.removeAttribute("src"); },
     };
     setStatus("ready");
