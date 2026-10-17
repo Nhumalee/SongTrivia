@@ -26,6 +26,7 @@ app.get("/api/deezer/*", async (req, res) => {
 // ---------- ค่าเริ่มต้นและขีดจำกัด ----------
 const DEFAULTS = { rounds: 10, seconds: 30 };
 const LIMITS = { rounds: [3, 30], seconds: [8, 60], players: 12, name: 16 };
+const AVATARS = new Set(["momo", "kai", "lily", "tae", "jun", "pond"]);
 const REVEAL_MS = 6000;
 const ROOM_TTL_MS = 1000 * 60 * 60 * 3;
 
@@ -35,6 +36,7 @@ const rooms = new Map();
 const clamp = (n, [lo, hi]) => Math.max(lo, Math.min(hi, Math.round(Number(n) || lo)));
 const cleanName = (s) =>
   String(s || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, LIMITS.name);
+const cleanAvatar = (value) => AVATARS.has(value) ? value : "momo";
 
 function makeCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -55,6 +57,7 @@ function leaderboard(room) {
     .map((p) => ({
       id: p.id,
       name: p.name,
+      avatar: cleanAvatar(p.avatar),
       score: p.score,
       connected: p.connected,
       isHost: p.id === room.hostId,
@@ -196,7 +199,7 @@ io.on("connection", (socket) => {
     socket.join(r.code);
   }
 
-  socket.on("room:create", ({ name, settings }, cb) => {
+  socket.on("room:create", ({ name, avatar, settings }, cb) => {
     const nm = cleanName(name);
     if (!nm) return ack(cb, { ok: false, error: "กรุณาใส่ชื่อของคุณ" });
     const code = makeCode();
@@ -220,7 +223,7 @@ io.on("connection", (socket) => {
       playlistName: null,
       playlists: [],
     };
-    const p = { id, token, name: nm, score: 0, connected: true, streak: 0, lastGain: 0 };
+    const p = { id, token, name: nm, avatar: cleanAvatar(avatar), score: 0, connected: true, streak: 0, lastGain: 0 };
     r.players.set(id, p);
     rooms.set(code, r);
     attach(r, p);
@@ -228,7 +231,7 @@ io.on("connection", (socket) => {
     broadcastRoom(r);
   });
 
-  socket.on("room:join", ({ code, name }, cb) => {
+  socket.on("room:join", ({ code, name, avatar }, cb) => {
     const r = rooms.get(String(code || "").toUpperCase().trim());
     if (!r) return ack(cb, { ok: false, error: "ไม่พบห้องนี้ ตรวจสอบรหัสอีกครั้ง" });
     if (r.phase !== "lobby") return ack(cb, { ok: false, error: "เกมเริ่มไปแล้ว เข้าร่วมไม่ได้" });
@@ -240,7 +243,7 @@ io.on("connection", (socket) => {
     if (dup) return ack(cb, { ok: false, error: "ชื่อนี้มีคนใช้แล้ว ลองชื่ออื่น" });
     const id = makeToken();
     const token = makeToken();
-    const p = { id, token, name: nm, score: 0, connected: true, streak: 0, lastGain: 0 };
+    const p = { id, token, name: nm, avatar: cleanAvatar(avatar), score: 0, connected: true, streak: 0, lastGain: 0 };
     r.players.set(id, p);
     attach(r, p);
     ack(cb, { ok: true, code: r.code, playerId: id, token, room: publicRoom(r) });
@@ -268,6 +271,14 @@ io.on("connection", (socket) => {
     }
     ack(cb, payload);
     broadcastRoom(r);
+  });
+
+  socket.on("player:avatar", ({ avatar }, cb) => {
+    const player = room?.players.get(playerId);
+    if (!player) return ack(cb, { ok: false });
+    player.avatar = cleanAvatar(avatar);
+    ack(cb, { ok: true });
+    broadcastRoom(room);
   });
 
   socket.on("room:settings", ({ settings, playlistName, playlists }, cb) => {

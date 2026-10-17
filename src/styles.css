@@ -591,3 +591,31 @@ body {
   .step-flow { flex-wrap: wrap; }
   .room-pill b { display: none; }
 }
+/* Lobby layout and player avatars */
+.avatar-picker { width: min(100%, 640px); margin: 10px auto 18px; text-align: center; }
+.avatar-picker-label { display: block; margin-bottom: 8px; color: var(--muted, #aab6d3); font-size: .82rem; font-weight: 700; }
+.avatar-options { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; }
+.avatar-option { width: 40px; height: 40px; padding: 0; border-radius: 50%; border: 1px solid var(--line, #344263); background: var(--panel2, #1a2542); font-size: 21px; cursor: pointer; transition: transform .15s ease, border-color .15s ease, background .15s ease; }
+.avatar-option:hover { transform: translateY(-2px); }
+.avatar-option.active { border: 2px solid #ffd43b; background: #3b3452; box-shadow: 0 0 0 3px #ffd43b26; }
+.avatar-option { overflow: hidden; padding: 0; }
+.avatar-option img, .player-avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.avatar-picker.compact { margin: 14px 0 18px; text-align: left; }
+.avatar-picker.compact .avatar-options { justify-content: flex-start; gap: 6px; }
+.avatar-picker.compact .avatar-option { width: 34px; height: 34px; font-size: 18px; }
+.lobby-grid { display: grid; grid-template-columns: minmax(250px, .72fr) minmax(0, 1.8fr); align-items: start; gap: 20px; width: 100%; }
+.player-panel { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.player-panel .card { width: 100%; }
+.player-panel .players { flex-direction: column; }
+.player-panel .players li { width: 100%; box-sizing: border-box; justify-content: flex-start; border-radius: 14px; }
+.player-panel .players li > span:nth-child(2) { flex: 1; }
+.player-avatar { display: inline-grid; flex: 0 0 38px; width: 38px; height: 38px; place-items: center; overflow: hidden; border-radius: 50%; background: #ffffff12; }
+.lobby-content { min-width: 0; }
+.lobby-content > .choose-quiz { margin-top: 0; }
+@media (max-width: 760px) {
+  .lobby-grid { grid-template-columns: 1fr; }
+  .player-panel { position: static; }
+  .player-panel .players { flex-direction: row; }
+  .player-panel .players li { width: auto; }
+  .avatar-picker.compact .avatar-options { gap: 7px; }
+}

@@ -4,6 +4,16 @@ import HostSetup from "./HostSetup.jsx";
 
 const SHAPES = ["▲", "◆", "●", "■"];
 const SESSION_KEY = "st_session";
+const AVATARS = ["momo", "kai", "lily", "tae", "jun", "pond"];
+const AVATAR_NAMES = { momo: "Momo", kai: "Kai", lily: "Lily", tae: "Tae", jun: "Jun", pond: "Pond" };
+const avatarUrl = (id) => `/avatar/${AVATARS.includes(id) ? id : "momo"}.png`;
+
+function AvatarPicker({ value, onChange, compact = false }) {
+  return <div className={`avatar-picker${compact ? " compact" : ""}`}>
+    <span className="avatar-picker-label">Choose your avatar</span>
+    <div className="avatar-options">{AVATARS.map((item) => <button key={item} type="button" className={`avatar-option${value === item ? " active" : ""}`} aria-label={AVATAR_NAMES[item]} title={AVATAR_NAMES[item]} aria-pressed={value === item} onClick={() => onChange(item)}><img src={avatarUrl(item)} alt="" /></button>)}</div>
+  </div>;
+}
 
 const loadSession = () => {
   try {
@@ -151,7 +161,7 @@ function Leaderboard({ list, meId, compact }) {
   );
 }
 
-function Home({ name, setName, busy, error, initialCode, onCreate, onJoin }) {
+function Home({ name, setName, avatar, setAvatar, busy, error, initialCode, onCreate, onJoin }) {
   const [code, setCode] = useState(initialCode || "");
   return (
     <div className="home home-screen">
@@ -173,6 +183,7 @@ function Home({ name, setName, busy, error, initialCode, onCreate, onJoin }) {
           <span>Your player name</span>
           <input className="input" maxLength={16} placeholder="Enter your name" value={name} onChange={(e) => setName(e.target.value)} />
         </label>
+        <AvatarPicker value={avatar} onChange={setAvatar} />
         <div className="home-cards">
           <section className="action-card create-card">
             <div className="hero-art friends-art" aria-hidden="true"><span>👧🏻</span><span>👩🏼‍🎤</span><span>🧑🏽‍🎤</span><b>♟＋</b></div>
@@ -215,6 +226,10 @@ function Home({ name, setName, busy, error, initialCode, onCreate, onJoin }) {
 // ---------- แอปหลัก ----------
 export default function App() {
   const [name, setName] = useState(() => localStorage.getItem("st_name") || "");
+  const [avatar, setAvatar] = useState(() => {
+    const saved = localStorage.getItem("st_avatar");
+    return AVATARS.includes(saved) ? saved : AVATARS[0];
+  });
   const [session, setSession] = useState(loadSession);
   const [room, setRoom] = useState(null);
   const [question, setQuestion] = useState(null);
@@ -248,6 +263,13 @@ export default function App() {
   } = usePlayer(!!room, showToast);
 
   useEffect(() => localStorage.setItem("st_name", name), [name]);
+  useEffect(() => localStorage.setItem("st_avatar", avatar), [avatar]);
+
+  const chooseAvatar = (nextAvatar) => {
+    if (!AVATARS.includes(nextAvatar)) return;
+    setAvatar(nextAvatar);
+    if (room && session) socket.emit("player:avatar", { avatar: nextAvatar });
+  };
 
   const resetGameState = () => {
     setQuestion(null);
@@ -338,7 +360,7 @@ export default function App() {
   const create = () => {
     setBusy(true);
     setError("");
-    socket.emit("room:create", { name: name.trim(), settings: {} }, (res) => {
+    socket.emit("room:create", { name: name.trim(), avatar, settings: {} }, (res) => {
       setBusy(false);
       res?.ok ? enter(res) : setError(res?.error || "สร้างห้องไม่สำเร็จ");
     });
@@ -347,7 +369,7 @@ export default function App() {
   const join = (code) => {
     setBusy(true);
     setError("");
-    socket.emit("room:join", { code, name: name.trim() }, (res) => {
+    socket.emit("room:join", { code, name: name.trim(), avatar }, (res) => {
       setBusy(false);
       res?.ok ? enter(res) : setError(res?.error || "เข้าห้องไม่สำเร็จ");
     });
@@ -384,6 +406,8 @@ export default function App() {
       <Home
         name={name}
         setName={setName}
+        avatar={avatar}
+        setAvatar={chooseAvatar}
         busy={busy}
         error={error}
         initialCode={initialCode}
@@ -437,7 +461,8 @@ export default function App() {
       )}
 
       {!starting && phase === "lobby" && (
-        <div className="stack">
+        <div className="lobby-grid">
+          <aside className="player-panel">
           {!audioUnlocked && <section className="card sound-setup">
             <h2>เปิดเสียงบนเครื่องนี้</h2>
             <p className="hint">แตะเพื่ออนุญาตให้มือถือเครื่องนี้เล่นคลิปเพลงเมื่อเริ่มแต่ละข้อ</p>
@@ -445,9 +470,11 @@ export default function App() {
           </section>}
           <section className="card">
             <h2>ผู้เล่นในห้อง ({room.players.length})</h2>
+            <AvatarPicker value={me?.avatar || avatar} onChange={chooseAvatar} compact />
             <ul className="players">
               {room.players.map((p) => (
                 <li key={p.id} className={(p.id === meId ? "me " : "") + (p.connected ? "" : "off")}>
+                  <span className="player-avatar"><img src={avatarUrl(p.avatar)} alt={`${p.name} avatar`} /></span>
                   <span>
                     {p.name}
                     {p.isHost && <em className="badge">host</em>}
@@ -463,6 +490,8 @@ export default function App() {
             </ul>
           </section>
 
+          </aside>
+          <div className="lobby-content">
           {isHost ? (
             <HostSetup
               room={room}
@@ -495,6 +524,7 @@ export default function App() {
             </section>}
             </>
           )}
+          </div>
         </div>
       )}
 
