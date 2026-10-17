@@ -1,0 +1,590 @@
+import { useEffect, useRef, useState } from "react";
+import { socket } from "./socket.js";
+import HostSetup from "./HostSetup.jsx";
+
+const SHAPES = ["▲", "◆", "●", "■"];
+const SESSION_KEY = "st_session";
+
+const loadSession = () => {
+  try {
+    return JSON.parse(localStorage.getItem(SESSION_KEY));
+  } catch {
+    return null;
+  }
+};
+const saveSession = (s) => localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+const clearSession = () => localStorage.removeItem(SESSION_KEY);
+
+// ---------- Deezer preview player (host) ----------
+function usePlayer(enabled, onError) {
+  const [status, setStatus] = useState("idle");
+  const [unlocked, setUnlocked] = useState(false);
+  const [volume, setVolumeState] = useState(() => {
+    const v = parseFloat(localStorage.getItem("st_volume"));
+    return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.8;
+  });
+  const [muted, setMuted] = useState(false);
+  const ref = useRef(null);
+  const effective = muted ? 0 : volume;
+  const effRef = useRef(effective);
+  effRef.current = effective;
+  useEffect(() => {
+    if (ref.current) ref.current.volume = effective;
+  }, [effective, status]);
+  const setVolume = (v) => {
+    setVolumeState(v);
+    if (v > 0) setMuted(false);
+    try {
+      localStorage.setItem("st_volume", String(v));
+    } catch {}
+  };
+  const toggleMute = () => {
+    if (muted) {
+      if (volume === 0) setVolume(0.5);
+      else setMuted(false);
+    } else setMuted(true);
+  };
+  useEffect(() => {
+    if (!enabled) return;
+    let dead = false;
+    setUnlocked(false);
+    const audio = new Audio();
+    audio.preload = "auto";
+    audio.volume = effRef.current;
+    audio.addEventListener("error", () => !dead && onError("เล่นคลิปตัวอย่างไม่สำเร็จ ลองเริ่มเกมอีกครั้ง"));
+    ref.current = {
+      audio,
+      activate() {
+        // Prime playback inside the host's Start click so browsers allow the first preview.
+        audio.muted = true;
+        audio.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=";
+        audio.play().then(() => { audio.pause(); audio.removeAttribute("src"); audio.load(); audio.muted = false; }).catch(() => { audio.muted = false; });
+        setUnlocked(true);
+      },
+      play(url, positionMs = 0) {
+        if (!url) return onError("เพลงนี้ไม่มีคลิปตัวอย่าง");
+        audio.src = url;
+        const start = () => {
+          audio.onloadedmetadata = null;
+          audio.currentTime = Math.min(27, Math.max(0, positionMs / 1000));
+          audio.play().catch(() => onError("เปิดเสียงบนเครื่องนี้ก่อนเริ่มเกมเพื่อฟังคลิปเพลง"));
+        };
+        if (audio.readyState >= 1) start();
+        else audio.onloadedmetadata = start;
+      },
+      pause: () => audio.pause(),
+      setVolume: (value) => { audio.volume = value; },
+      disconnect: () => { audio.pause(); audio.removeAttribute("src"); },
+    };
+    setStatus("ready");
+    return () => {
+      dead = true;
+      ref.current?.disconnect();
+      ref.current = null;
+      setUnlocked(false);
+      setStatus("idle");
+    };
+  }, [enabled]);
+  return { status, ref, volume: effective, muted, setVolume, toggleMute, unlocked };
+}
+
+function VolumeControl({ volume, muted, ready, unlocked, activate, setVolume, toggleMute }) {
+  const pct = Math.round(volume * 100);
+  const icon = muted || volume === 0 ? "🔇" : volume < 0.35 ? "🔈" : volume < 0.7 ? "🔉" : "🔊";
+  return (
+    <div className={"volume" + (ready ? "" : " off")}>
+      {!unlocked && <button className="btn small" onClick={activate}>เปิดเสียง</button>}
+      <button className="vol-btn" onClick={toggleMute} aria-label={muted ? "เปิดเสียง" : "ปิดเสียง"} title={muted ? "เปิดเสียง" : "ปิดเสียง"}>
+        {icon}
+      </button>
+      <input
+        type="range"
+        min="0"
+        max="1"
+        step="0.05"
+        value={volume}
+        aria-label="ระดับเสียงเพลง"
+        onChange={(e) => setVolume(Number(e.target.value))}
+      />
+      <span className="vol-pct">{pct}%</span>
+    </div>
+  );
+}
+
+// ---------- ส่วนย่อย ----------
+function Timer({ endsAt, offset, seconds }) {
+  const [left, setLeft] = useState(seconds * 1000);
+  useEffect(() => {
+    const tick = () => setLeft(Math.max(0, endsAt - (Date.now() + offset)));
+    tick();
+    const id = setInterval(tick, 100);
+    return () => clearInterval(id);
+  }, [endsAt, offset]);
+  const pct = Math.min(100, (left / (seconds * 1000)) * 100);
+  return (
+    <div className={"timer" + (left < 5000 ? " low" : "")}>
+      <div className="timer-bar" style={{ width: pct + "%" }} />
+      <span>{Math.ceil(left / 1000)}</span>
+    </div>
+  );
+}
+
+function Leaderboard({ list, meId, compact }) {
+  return (
+    <ol className={"board" + (compact ? " compact" : "")}>
+      {list.map((p, i) => (
+        <li key={p.id} className={(p.id === meId ? "me " : "") + (p.connected ? "" : "off")}>
+          <span className="rank">{i + 1}</span>
+          <span className="pname">
+            {p.name}
+            {p.isHost && <em className="badge">host</em>}
+            {p.streak >= 2 && <em className="streak">🔥{p.streak}</em>}
+          </span>
+          {p.lastGain > 0 && <span className="gain">+{p.lastGain}</span>}
+          <span className="score">{p.score.toLocaleString()}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function Home({ name, setName, busy, error, initialCode, onCreate, onJoin }) {
+  const [code, setCode] = useState(initialCode || "");
+  return (
+    <div className="home">
+      <div className="logo">♪</div>
+      <h1>ทายเพลง</h1>
+      <p className="tag">เล่นกับเพื่อน ฟังคลิปเพลงจาก Deezer แล้วแข่งกันทายให้เร็วที่สุด</p>
+
+      <section className="card">
+        <label className="field">
+          <span>ชื่อของคุณ</span>
+          <input
+            className="input"
+            maxLength={16}
+            placeholder="เช่น มะลิ"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </label>
+      </section>
+
+      <section className="card">
+        <h2>เข้าร่วมห้องของเพื่อน</h2>
+        <div className="row">
+          <input
+            className="input code"
+            maxLength={4}
+            placeholder="รหัส 4 ตัว"
+            value={code}
+            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            onKeyDown={(e) => e.key === "Enter" && onJoin(code)}
+          />
+          <button className="btn primary" disabled={busy || code.length < 4 || !name.trim()} onClick={() => onJoin(code)}>
+            เข้าห้อง
+          </button>
+        </div>
+        <p className="hint">ผู้เล่นไม่ต้องสมัครหรือล็อกอินบริการเพลง</p>
+      </section>
+
+      <section className="card">
+        <h2>สร้างห้องเอง (Host)</h2>
+        <p className="hint">สร้างห้อง แล้วเลือกเพลย์ลิสต์สาธารณะจาก Deezer ในหน้าห้อง</p>
+        <button className="btn primary big" disabled={busy || !name.trim()} onClick={onCreate}>
+          {busy ? "กำลังสร้างห้อง…" : "สร้างห้อง แล้วเลือกเพลง"}
+        </button>
+      </section>
+
+      {error && <div className="alert">{error}</div>}
+    </div>
+  );
+}
+
+// ---------- แอปหลัก ----------
+export default function App() {
+  const [name, setName] = useState(() => localStorage.getItem("st_name") || "");
+  const [session, setSession] = useState(loadSession);
+  const [room, setRoom] = useState(null);
+  const [question, setQuestion] = useState(null);
+  const [myChoice, setMyChoice] = useState(null);
+  const [answeredCount, setAnsweredCount] = useState(null);
+  const [reveal, setReveal] = useState(null);
+  const [final, setFinal] = useState(null);
+  const [starting, setStarting] = useState(false);
+  const [picked, setPicked] = useState({ sources: [] });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [toast, setToast] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [rejoining, setRejoining] = useState(!!loadSession());
+
+  const initialCode = new URLSearchParams(window.location.search).get("room")?.toUpperCase() || "";
+  const isHost = !!room && !!session && room.hostId === session.playerId;
+
+  const showToast = (m) => {
+    setToast(m);
+    setTimeout(() => setToast(""), 4000);
+  };
+  const {
+    status: playerStatus,
+    ref: playerRef,
+    volume,
+    muted,
+    setVolume,
+    toggleMute,
+    unlocked: audioUnlocked,
+  } = usePlayer(!!room, showToast);
+
+  useEffect(() => localStorage.setItem("st_name", name), [name]);
+
+  const resetGameState = () => {
+    setQuestion(null);
+    setReveal(null);
+    setFinal(null);
+    setMyChoice(null);
+    setAnsweredCount(null);
+    setStarting(false);
+  };
+
+  const leaveLocal = (msg) => {
+    clearSession();
+    setSession(null);
+    setRoom(null);
+    setPicked({ sources: [] });
+    resetGameState();
+    if (msg) setError(msg);
+  };
+
+  // ----- socket events -----
+  useEffect(() => {
+    const tryRejoin = () => {
+      const s = loadSession();
+      if (!s) return setRejoining(false);
+      socket.emit("room:rejoin", s, (res) => {
+        setRejoining(false);
+        if (!res?.ok) {
+          clearSession();
+          setSession(null);
+          setRoom(null);
+          return;
+        }
+        setSession(s);
+        setRoom(res.room);
+        if (res.question) {
+          setQuestion({ ...res.question, offset: res.question.serverNow - Date.now() });
+          setMyChoice(res.answered);
+        }
+      });
+    };
+    socket.on("connect", tryRejoin);
+    if (socket.connected) tryRejoin();
+
+    socket.on("room:update", setRoom);
+    socket.on("game:starting", () => {
+      resetGameState();
+      setStarting(true);
+    });
+    socket.on("question", (q) => {
+      setStarting(false);
+      setReveal(null);
+      setFinal(null);
+      setMyChoice(null);
+      setAnsweredCount(0);
+      setQuestion({ ...q, offset: q.serverNow - Date.now() });
+    });
+    socket.on("question:play", ({ previewUrl, positionMs }) => playerRef.current?.play(previewUrl, positionMs));
+    socket.on("answer:count", ({ answered, total }) => setAnsweredCount(`${answered}/${total}`));
+    socket.on("reveal", (r) => {
+      playerRef.current?.pause();
+      setReveal(r);
+    });
+    socket.on("finished", (f) => {
+      setFinal(f);
+      setReveal(null);
+      setQuestion(null);
+      playerRef.current?.pause();
+    });
+    socket.on("game:reset", () => {
+      resetGameState();
+      playerRef.current?.pause();
+    });
+    socket.on("kicked", () => leaveLocal("คุณถูกเชิญออกจากห้อง"));
+    socket.on("room:closed", () => leaveLocal("host ปิดห้องแล้ว"));
+    return () => socket.removeAllListeners();
+  }, []);
+
+  // ----- actions -----
+  const enter = (res) => {
+    const s = { code: res.code, playerId: res.playerId, token: res.token };
+    saveSession(s);
+    setSession(s);
+    setRoom(res.room);
+    resetGameState();
+    window.history.replaceState({}, "", "/");
+  };
+
+  const create = () => {
+    setBusy(true);
+    setError("");
+    socket.emit("room:create", { name: name.trim(), settings: {} }, (res) => {
+      setBusy(false);
+      res?.ok ? enter(res) : setError(res?.error || "สร้างห้องไม่สำเร็จ");
+    });
+  };
+
+  const join = (code) => {
+    setBusy(true);
+    setError("");
+    socket.emit("room:join", { code, name: name.trim() }, (res) => {
+      setBusy(false);
+      res?.ok ? enter(res) : setError(res?.error || "เข้าห้องไม่สำเร็จ");
+    });
+  };
+
+  const leave = () => {
+    if (isHost && !window.confirm("ออกจากห้องจะปิดห้องสำหรับทุกคน ยืนยัน?")) return;
+    socket.emit("room:leave");
+    leaveLocal();
+  };
+
+  const answer = (choice) => {
+    if (myChoice !== null || !question) return;
+    setMyChoice(choice);
+    socket.emit("answer", { index: question.index, choice });
+  };
+
+  const copyLink = async () => {
+    const link = `${window.location.origin}/?room=${room.code}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      window.prompt("คัดลอกลิงก์นี้ส่งให้เพื่อน", link);
+    }
+  };
+
+  // ----- views -----
+  if (rejoining) return <div className="center muted">กำลังเชื่อมต่อ…</div>;
+
+  if (!room || !session) {
+    return (
+      <Home
+        name={name}
+        setName={setName}
+        busy={busy}
+        error={error}
+        initialCode={initialCode}
+        onCreate={create}
+        onJoin={join}
+      />
+    );
+  }
+
+  const meId = session.playerId;
+  const me = room.players.find((p) => p.id === meId);
+  const phase = room.phase;
+
+  return (
+    <div className="room">
+      <header className="top">
+        <div>
+          <span className="muted small">รหัสห้อง</span>
+          <div className="roomcode">{room.code}</div>
+        </div>
+        <div className="top-actions">
+          <button className="btn small" onClick={copyLink}>
+            {copied ? "คัดลอกแล้ว ✓" : "คัดลอกลิงก์เชิญ"}
+          </button>
+          <button className="btn small ghost" onClick={leave}>
+            ออก
+          </button>
+        </div>
+      </header>
+
+      {toast && <div className="toast">{toast}</div>}
+
+      {room && (
+        <VolumeControl
+          volume={volume}
+          muted={muted}
+          ready={playerStatus === "ready"}
+          unlocked={audioUnlocked}
+          activate={() => playerRef.current?.activate()}
+          setVolume={setVolume}
+          toggleMute={toggleMute}
+        />
+      )}
+
+      {starting && (
+        <div className="center big-msg">
+          <div className="pulse">🎧</div>
+          <h2>เกมกำลังเริ่ม…</h2>
+          <p className="muted">เตรียมหูให้พร้อม!</p>
+        </div>
+      )}
+
+      {!starting && phase === "lobby" && (
+        <div className="stack">
+          {!audioUnlocked && <section className="card sound-setup">
+            <h2>เปิดเสียงบนเครื่องนี้</h2>
+            <p className="hint">แตะเพื่ออนุญาตให้มือถือเครื่องนี้เล่นคลิปเพลงเมื่อเริ่มแต่ละข้อ</p>
+            <button className="btn primary" onClick={() => playerRef.current?.activate()}>เปิดเสียง</button>
+          </section>}
+          <section className="card">
+            <h2>ผู้เล่นในห้อง ({room.players.length})</h2>
+            <ul className="players">
+              {room.players.map((p) => (
+                <li key={p.id} className={(p.id === meId ? "me " : "") + (p.connected ? "" : "off")}>
+                  <span>
+                    {p.name}
+                    {p.isHost && <em className="badge">host</em>}
+                    {p.id === meId && <em className="badge you">คุณ</em>}
+                  </span>
+                  {isHost && !p.isHost && (
+                    <button className="x" title="เชิญออก" onClick={() => socket.emit("room:kick", { id: p.id })}>
+                      ✕
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          {isHost ? (
+            <HostSetup
+              room={room}
+              picked={picked}
+              setPicked={setPicked}
+              playerStatus={playerStatus}
+              playerRef={playerRef}
+            />
+          ) : (
+            <section className="card center-text">
+              <div className="pulse">⏳</div>
+              <h2>รอ host เริ่มเกม</h2>
+              <p className="muted">
+                เพลย์ลิสต์: {room.playlistName || "ยังไม่ได้เลือก"} · {room.settings.rounds} ข้อ ·{" "}
+                {room.settings.seconds} วินาที/ข้อ
+              </p>
+            </section>
+          )}
+        </div>
+      )}
+
+      {!starting && phase === "question" && question && (
+        <div className="stack">
+          <div className="qhead">
+            <span>
+              ข้อ {question.index + 1}/{question.total}
+            </span>
+            <span className="muted">ตอบแล้ว {answeredCount ?? "0"}</span>
+          </div>
+          <Timer endsAt={question.endsAt} offset={question.offset} seconds={question.seconds} />
+          <div className="listen">
+            <div className="eq">
+              <i /> <i /> <i /> <i />
+            </div>
+            <h2>เพลงอะไรเอ่ย?</h2>
+            <p className="muted small">
+              {isHost ? "เพลงกำลังเล่นจากเครื่องของคุณ" : "ฟังเสียงจากเครื่องของ host"}
+            </p>
+          </div>
+          <div className="options">
+            {question.options.map((o, i) => (
+              <button
+                key={i}
+                className={"opt o" + i + (myChoice === i ? " chosen" : "") + (myChoice !== null && myChoice !== i ? " dim" : "")}
+                disabled={myChoice !== null}
+                onClick={() => answer(i)}
+              >
+                <b>{SHAPES[i]}</b>
+                <span>{o}</span>
+              </button>
+            ))}
+          </div>
+          {myChoice !== null && <p className="center-text muted">ล็อกคำตอบแล้ว รอคนอื่น…</p>}
+          {isHost && (
+            <button className="btn ghost" onClick={() => socket.emit("game:skip")}>
+              จบข้อนี้เลย
+            </button>
+          )}
+        </div>
+      )}
+
+      {!starting && phase === "reveal" && reveal && (
+        <div className="stack">
+          <div className="qhead">
+            <span>
+              เฉลยข้อ {reveal.index + 1}
+            </span>
+          </div>
+          <div className="trackcard">
+            {reveal.track.cover && <img src={reveal.track.cover} alt="" />}
+            <div>
+              <h2>{reveal.track.title}</h2>
+              <p className="muted">{reveal.track.artist}</p>
+            </div>
+          </div>
+          {(() => {
+            const r = reveal.results.find((x) => x.id === meId);
+            if (!r) return null;
+            const gain = me?.lastGain || 0;
+            return (
+              <div className={"verdict " + (r.correct ? "ok" : "no")}>
+                {r.correct ? `ถูกต้อง! +${gain}` : r.choice === null ? "ไม่ได้ตอบ" : "ผิดนะ"}
+              </div>
+            );
+          })()}
+          <div className="options small-opts">
+            {question?.options?.map((o, i) => (
+              <div
+                key={i}
+                className={"opt o" + i + (i === reveal.correctIndex ? " correct" : " dim") + (myChoice === i && i !== reveal.correctIndex ? " wrong" : "")}
+              >
+                <b>{SHAPES[i]}</b>
+                <span>{o}</span>
+              </div>
+            ))}
+          </div>
+          <Leaderboard list={reveal.leaderboard} meId={meId} compact />
+          {isHost ? (
+            <button className="btn primary big" onClick={() => socket.emit("game:skip")}>
+              {reveal.isLast ? "ดูผลสุดท้าย" : "ข้อต่อไป →"}
+            </button>
+          ) : (
+            <p className="center-text muted">กำลังไปข้อต่อไปอัตโนมัติ…</p>
+          )}
+        </div>
+      )}
+
+      {!starting && phase === "finished" && (
+        <div className="stack">
+          <div className="center-text">
+            <div className="trophy">🏆</div>
+            <h2>จบเกม!</h2>
+            {(() => {
+              const lb = final?.leaderboard || room.players;
+              const w = lb[0];
+              return w ? (
+                <p>
+                  ผู้ชนะคือ <strong>{w.name}</strong> ({w.score.toLocaleString()} คะแนน)
+                </p>
+              ) : null;
+            })()}
+          </div>
+          <Leaderboard list={final?.leaderboard || room.players} meId={meId} />
+          {isHost ? (
+            <div className="row">
+              <button className="btn primary big" onClick={() => socket.emit("game:reset")}>
+                เล่นอีกรอบ
+              </button>
+            </div>
+          ) : (
+            <p className="center-text muted">รอ host เริ่มรอบใหม่ หรือกด "ออก" เพื่อกลับหน้าแรก</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
