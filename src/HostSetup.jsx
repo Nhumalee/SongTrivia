@@ -5,7 +5,18 @@ import { buildQuestions } from "./deezer.js";
 
 const ROUND_OPTIONS = [5, 10, 15, 20];
 const SECOND_OPTIONS = [10, 15, 20, 30];
-const GENRES = ["Pop", "Rap", "Rock", "Latino", "R&B", "Electronic", "K-Pop", "Country", "Metal"];
+const GENRES = [
+  { label: "Pop", query: "Pop" },
+  { label: "Rap", query: "Rap" },
+  { label: "Rock", query: "Rock" },
+  { label: "Latino", query: "Latino" },
+  { label: "R&B", query: "R&B" },
+  { label: "Electronic", query: "Electronic" },
+  { label: "K-Pop", query: "K-Pop" },
+  { label: "Thai", query: "เพลงไทย" },
+  { label: "Country", query: "Country" },
+  { label: "Metal", query: "Metal" },
+];
 
 export default function HostSetup({ room, picked, setPicked, playerStatus, playerRef, onCopyLink, onLeave }) {
   const [playlists, setPlaylists] = useState(null);
@@ -20,7 +31,13 @@ export default function HostSetup({ room, picked, setPicked, playerStatus, playe
   }, [sources]);
 
   useEffect(() => {
-    socket.emit("room:settings", { playlistName: sources.map((source) => source.name).join(" + ") });
+    socket.emit("room:settings", {
+      playlists: sources.map((source) => ({
+        name: source.name,
+        cover: source.cover || source.tracks[0]?.cover || null,
+        trackCount: source.tracks.length,
+      })),
+    });
   }, [sources]);
 
   useEffect(() => {
@@ -88,7 +105,7 @@ export default function HostSetup({ room, picked, setPicked, playerStatus, playe
           <span className="muted small">รวม {pool.length} เพลง{pool.length < 4 ? " · ต้องมีอย่างน้อย 4 เพลง" : ` · เล่น ${Math.min(room.settings.rounds, pool.length)} ข้อ`}</span>
         </div>}
         <input className="input" placeholder="ค้นหาเพลย์ลิสต์ เช่น pop hits, k-pop…" value={filter} onChange={(event) => setFilter(event.target.value)} />
-        <div className="genre-pills">{GENRES.map((genre) => <button key={genre} type="button" className={filter.toLowerCase() === genre.toLowerCase() ? "genre-pill active" : "genre-pill"} onClick={() => setFilter(genre)}>{genre}</button>)}</div>
+        <div className="genre-pills">{GENRES.map((genre) => <button key={genre.label} type="button" className={filter.toLowerCase() === genre.query.toLowerCase() ? "genre-pill active" : "genre-pill"} onClick={() => setFilter(genre.query)}>{genre.label}</button>)}</div>
         <ul className="playlists">
           {playlists === null && <li className="muted">กำลังค้นหาเพลย์ลิสต์…</li>}
           {playlists && shown.length === 0 && <li className="muted">ไม่พบเพลย์ลิสต์ ลองค้นคำอื่น</li>}

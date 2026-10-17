@@ -70,6 +70,7 @@ function publicRoom(room) {
     phase: room.phase,
     settings: room.settings,
     playlistName: room.playlistName || null,
+    playlists: room.playlists || [],
     hostId: room.hostId,
     players: leaderboard(room),
   };
@@ -217,6 +218,7 @@ io.on("connection", (socket) => {
       timer: null,
       createdAt: Date.now(),
       playlistName: null,
+      playlists: [],
     };
     const p = { id, token, name: nm, score: 0, connected: true, streak: 0, lastGain: 0 };
     r.players.set(id, p);
@@ -268,14 +270,23 @@ io.on("connection", (socket) => {
     broadcastRoom(r);
   });
 
-  socket.on("room:settings", ({ settings, playlistName }, cb) => {
+  socket.on("room:settings", ({ settings, playlistName, playlists }, cb) => {
     if (!room || playerId !== room.hostId || room.phase !== "lobby")
       return ack(cb, { ok: false });
     if (settings) {
       room.settings.rounds = clamp(settings.rounds ?? room.settings.rounds, LIMITS.rounds);
       room.settings.seconds = clamp(settings.seconds ?? room.settings.seconds, LIMITS.seconds);
     }
-    if (typeof playlistName === "string") room.playlistName = playlistName.slice(0, 80);
+    if (Array.isArray(playlists)) {
+      room.playlists = playlists.slice(0, 10).map((playlist) => ({
+        name: String(playlist?.name || "Playlist").slice(0, 80),
+        cover: typeof playlist?.cover === "string" && playlist.cover.startsWith("https://") ? playlist.cover.slice(0, 500) : null,
+        trackCount: Math.max(0, Math.min(1000, Number(playlist?.trackCount) || 0)),
+      }));
+      room.playlistName = room.playlists.map((playlist) => playlist.name).join(" + ").slice(0, 80);
+    } else if (typeof playlistName === "string") {
+      room.playlistName = playlistName.slice(0, 80);
+    }
     ack(cb, { ok: true });
     broadcastRoom(room);
   });

@@ -27,7 +27,7 @@ export async function getPlaylist(id) {
     cover: t.album?.cover_medium || p.picture_medium || null, previewUrl: t.preview,
   }));
   if (!tracks.length) throw new Error("เพลย์ลิสต์นี้ไม่มีเพลงตัวอย่างที่เล่นได้");
-  return { key: `deezer:playlist:${id}`, type: "playlist", platform: "Deezer", id: String(id), name: p.title, tracks };
+  return { key: `deezer:playlist:${id}`, type: "playlist", platform: "Deezer", id: String(id), name: p.title, cover: p.picture_medium || p.picture || tracks[0]?.cover || null, tracks };
 }
 
 export function buildQuestions(tracks, rounds, seconds) {

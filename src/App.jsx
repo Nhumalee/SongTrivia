@@ -196,11 +196,13 @@ function Home({ name, setName, busy, error, initialCode, onCreate, onJoin }) {
               onChange={(e) => {
                 const next = e.target.value.replace(/[^a-z0-9]/gi, "").slice(0, 4).toUpperCase();
                 setCode(next);
-                if (next.length === 4 && name.trim() && !busy) onJoin(next);
               }}
-              onKeyDown={(e) => e.key === "Enter" && code.length === 4 && onJoin(code)}
+              onKeyDown={(e) => e.key === "Enter" && code.length === 4 && name.trim() && !busy && onJoin(code)}
             />
-            <p className="join-hint">Enter the 4-digit code to join the lobby automatically.</p>
+            <p className="join-hint">Enter the 4-character code, then join the lobby.</p>
+            <button className="btn join-cta" disabled={busy || code.length !== 4 || !name.trim()} onClick={() => onJoin(code)}>
+              {busy ? "Joining lobby…" : "Join lobby"}<b>›</b>
+            </button>
           </section>
         </div>
         {error && <div className="alert home-alert">{error}</div>}
@@ -472,6 +474,7 @@ export default function App() {
               onLeave={leave}
             />
           ) : (
+            <>
             <section className="card center-text">
               <div className="pulse">⏳</div>
               <h2>รอ host เริ่มเกม</h2>
@@ -480,6 +483,17 @@ export default function App() {
                 {room.settings.seconds} วินาที/ข้อ
               </p>
             </section>
+            {room.playlists?.length > 0 && <section className="shared-playlists">
+              <h3>Playlist selected by host</h3>
+              <div className="shared-playlist-list">
+                {room.playlists.map((playlist, index) => <div className="shared-playlist" key={playlist.name + index}>
+                  {playlist.cover ? <img src={playlist.cover} alt="" /> : <span className="shared-playlist-icon">♫</span>}
+                  <span><strong>{playlist.name}</strong><small>{playlist.trackCount} preview tracks</small></span>
+                  <b>✓</b>
+                </div>)}
+              </div>
+            </section>}
+            </>
           )}
         </div>
       )}
