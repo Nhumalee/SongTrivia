@@ -101,12 +101,11 @@ function usePlayer(enabled, onError) {
   return { status, ref, volume: effective, muted, setVolume, toggleMute, unlocked };
 }
 
-function VolumeControl({ volume, muted, ready, unlocked, activate, setVolume, toggleMute }) {
+function VolumeControl({ volume, muted, ready, setVolume, toggleMute }) {
   const pct = Math.round(volume * 100);
   const icon = muted || volume === 0 ? "🔇" : volume < 0.35 ? "🔈" : volume < 0.7 ? "🔉" : "🔊";
   return (
     <div className={"volume" + (ready ? "" : " off")}>
-      {!unlocked && <button className="btn small" onClick={activate}>เปิดเสียง</button>}
       <button className="vol-btn" onClick={toggleMute} aria-label={muted ? "เปิดเสียง" : "ปิดเสียง"} title={muted ? "เปิดเสียง" : "ปิดเสียง"}>
         {icon}
       </button>
@@ -259,11 +258,24 @@ export default function App() {
     muted,
     setVolume,
     toggleMute,
-    unlocked: audioUnlocked,
-  } = usePlayer(!!room, showToast);
+  } = usePlayer(true, showToast);
 
   useEffect(() => localStorage.setItem("st_name", name), [name]);
   useEffect(() => localStorage.setItem("st_avatar", avatar), [avatar]);
+
+  useEffect(() => {
+    const unlockOnFirstInteraction = () => {
+      playerRef.current?.activate();
+      window.removeEventListener("pointerdown", unlockOnFirstInteraction);
+      window.removeEventListener("keydown", unlockOnFirstInteraction);
+    };
+    window.addEventListener("pointerdown", unlockOnFirstInteraction);
+    window.addEventListener("keydown", unlockOnFirstInteraction);
+    return () => {
+      window.removeEventListener("pointerdown", unlockOnFirstInteraction);
+      window.removeEventListener("keydown", unlockOnFirstInteraction);
+    };
+  }, []);
 
   const chooseAvatar = (nextAvatar) => {
     if (!AVATARS.includes(nextAvatar)) return;
@@ -358,6 +370,7 @@ export default function App() {
   };
 
   const create = () => {
+    playerRef.current?.activate();
     setBusy(true);
     setError("");
     socket.emit("room:create", { name: name.trim(), avatar, settings: {} }, (res) => {
@@ -367,6 +380,7 @@ export default function App() {
   };
 
   const join = (code) => {
+    playerRef.current?.activate();
     setBusy(true);
     setError("");
     socket.emit("room:join", { code, name: name.trim(), avatar }, (res) => {
@@ -445,8 +459,6 @@ export default function App() {
           volume={volume}
           muted={muted}
           ready={playerStatus === "ready"}
-          unlocked={audioUnlocked}
-          activate={() => playerRef.current?.activate()}
           setVolume={setVolume}
           toggleMute={toggleMute}
         />
@@ -463,11 +475,6 @@ export default function App() {
       {!starting && phase === "lobby" && (
         <div className="lobby-grid">
           <aside className="player-panel">
-          {!audioUnlocked && <section className="card sound-setup">
-            <h2>เปิดเสียงบนเครื่องนี้</h2>
-            <p className="hint">แตะเพื่ออนุญาตให้มือถือเครื่องนี้เล่นคลิปเพลงเมื่อเริ่มแต่ละข้อ</p>
-            <button className="btn primary" onClick={() => playerRef.current?.activate()}>เปิดเสียง</button>
-          </section>}
           <section className="card">
             <h2>ผู้เล่นในห้อง ({room.players.length})</h2>
             <AvatarPicker value={me?.avatar || avatar} onChange={chooseAvatar} compact />
@@ -529,8 +536,9 @@ export default function App() {
       )}
 
       {!starting && phase === "question" && question && (
-        <div className="stack">
-          <div className="qhead">
+        <div className="game-layout">
+          <main className="game-main stack">
+          <div className="qhead game-qhead">
             <span>
               ข้อ {question.index + 1}/{question.total}
             </span>
@@ -565,6 +573,13 @@ export default function App() {
               จบข้อนี้เลย
             </button>
           )}
+          </main>
+          <aside className="game-score-panel card">
+            <div className="score-panel-heading"><div><span className="eyebrow">LIVE SCORE</span><h2>อันดับคะแนน</h2></div><span className="live-dot">LIVE</span></div>
+            <div className="my-score-card"><span>คะแนนของคุณ</span><strong>{(me?.score || 0).toLocaleString()}</strong><small>คะแนนสะสม</small></div>
+            <Leaderboard list={room.players} meId={meId} compact />
+            <p className="score-live-hint">คะแนนจะปรับตามคำตอบถูก และอันดับอาจเปลี่ยนจนกว่าจะเฉลย</p>
+          </aside>
         </div>
       )}
 
@@ -592,6 +607,22 @@ export default function App() {
               </div>
             );
           })()}
+          <section className="answer-results card">
+            <h3>เวลาตอบและคะแนนรอบนี้</h3>
+            <ol>
+              {[...reveal.results].sort((a, b) => {
+                const group = (item) => item.correct ? 0 : item.choice === null ? 2 : 1;
+                return group(a) - group(b) || (a.responseSeconds ?? Infinity) - (b.responseSeconds ?? Infinity);
+              }).map((result) => (
+                <li key={result.id} className={result.correct ? "correct" : result.choice === null ? "unanswered" : "incorrect"}>
+                  <span className="answer-rank">{result.correct ? `#${result.answerRank}` : "–"}</span>
+                  <strong>{result.name || room.players.find((player) => player.id === result.id)?.name || "Player"}</strong>
+                  <span className="answer-time">{result.responseSeconds === null ? "ไม่ตอบ" : `${result.responseSeconds.toFixed(2)} วินาที`}</span>
+                  <b>{result.correct ? `ถูก +${result.points}` : result.choice === null ? "—" : "ผิด +0"}</b>
+                </li>
+              ))}
+            </ol>
+          </section>
           <div className="options small-opts">
             {question?.options?.map((o, i) => (
               <div

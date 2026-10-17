@@ -83,11 +83,37 @@ function broadcastRoom(room) {
   io.to(room.code).emit("room:update", publicRoom(room));
 }
 
+function updateLiveScores(room, question) {
+  const correctAnswers = [...room.answers.entries()]
+    .filter(([, answer]) => answer.choice === question.correctIndex)
+    .sort((a, b) => a[1].elapsedMs - b[1].elapsedMs);
+  const pointsByPlayer = new Map();
+  const rankByPlayer = new Map();
+  let rank = 0;
+  let previousElapsedMs = null;
+
+  correctAnswers.forEach(([id, answer], index) => {
+    if (answer.elapsedMs !== previousElapsedMs) rank = index + 1;
+    rankByPlayer.set(id, rank);
+    pointsByPlayer.set(id, Math.max(100, 1000 - (rank - 1) * 100));
+    previousElapsedMs = answer.elapsedMs;
+  });
+
+  for (const player of room.players.values()) {
+    const baseScore = room.roundBaseScores?.get(player.id) ?? player.score;
+    player.lastGain = pointsByPlayer.get(player.id) || 0;
+    player.score = baseScore + player.lastGain;
+  }
+
+  return { pointsByPlayer, rankByPlayer };
+}
+
 // ---------- รอบเกม ----------
 function startQuestion(room) {
   const q = room.questions[room.index];
   room.phase = "question";
   room.answers = new Map();
+  room.roundBaseScores = new Map([...room.players.values()].map((player) => [player.id, player.score]));
   room.endsAt = Date.now() + room.settings.seconds * 1000;
   for (const p of room.players.values()) p.lastGain = 0;
 
@@ -118,23 +144,27 @@ function endQuestion(room) {
   room.phase = "reveal";
   const q = room.questions[room.index];
 
+  const { pointsByPlayer, rankByPlayer } = updateLiveScores(room, q);
+
   const results = [];
   for (const p of room.players.values()) {
     const a = room.answers.get(p.id);
     if (a && a.choice === q.correctIndex) {
-      const ratio = Math.max(0, 1 - a.elapsedMs / (room.settings.seconds * 1000));
-      const gain = Math.round(500 + 500 * ratio);
+      const gain = pointsByPlayer.get(p.id) || 100;
       p.streak = (p.streak || 0) + 1;
       p.lastGain = gain;
-      p.score += gain;
     } else {
       p.streak = 0;
       p.lastGain = 0;
     }
     results.push({
       id: p.id,
+      name: p.name,
       choice: a ? a.choice : null,
       correct: !!a && a.choice === q.correctIndex,
+      responseSeconds: a ? Number((a.elapsedMs / 1000).toFixed(2)) : null,
+      points: p.lastGain,
+      answerRank: rankByPlayer.get(p.id) ?? null,
     });
   }
 
@@ -336,6 +366,7 @@ io.on("connection", (socket) => {
     if (![0, 1, 2, 3].includes(choice)) return ack(cb, { ok: false });
     const elapsedMs = Math.max(0, Date.now() - (room.endsAt - room.settings.seconds * 1000));
     room.answers.set(playerId, { choice, elapsedMs });
+    updateLiveScores(room, room.questions[room.index]);
     ack(cb, { ok: true });
     io.to(room.code).emit("answer:count", {
       answered: room.answers.size,
@@ -345,6 +376,7 @@ io.on("connection", (socket) => {
       .filter((p) => p.connected)
       .every((p) => room.answers.has(p.id));
     if (allIn) endQuestion(room);
+    else broadcastRoom(room);
   });
 
   socket.on("game:skip", () => {
@@ -359,6 +391,7 @@ io.on("connection", (socket) => {
     room.phase = "lobby";
     room.questions = [];
     room.index = 0;
+    room.roundBaseScores = null;
     for (const p of room.players.values()) {
       p.score = 0;
       p.streak = 0;
