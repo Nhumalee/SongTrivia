@@ -649,33 +649,35 @@ export default function App() {
         </div>
       )}
 
-      {!starting && phase === "finished" && (
-        <div className="stack">
-          <div className="center-text">
-            <div className="trophy">🏆</div>
-            <h2>จบเกม!</h2>
-            {(() => {
-              const lb = final?.leaderboard || room.players;
-              const w = lb[0];
-              return w ? (
-                <p>
-                  ผู้ชนะคือ <strong>{w.name}</strong> ({w.score.toLocaleString()} คะแนน)
-                </p>
-              ) : null;
-            })()}
-          </div>
-          <Leaderboard list={final?.leaderboard || room.players} meId={meId} />
-          {isHost ? (
-            <div className="row">
-              <button className="btn primary big" onClick={() => socket.emit("game:reset")}>
-                เล่นอีกรอบ
-              </button>
+      {!starting && phase === "finished" && (() => {
+        const leaderboard = final?.leaderboard || room.players;
+        const winner = leaderboard[0];
+        return (
+          <section className="finish-screen" aria-labelledby="finish-title">
+            <div className="finish-hero">
+              <div className="finish-trophy" aria-hidden="true">🏆</div>
+              <span className="eyebrow">GAME COMPLETE</span>
+              <h2 id="finish-title">จบเกม!</h2>
+              {winner && <p>ผู้ชนะคือ <strong>{winner.name}</strong> <span>({winner.score.toLocaleString()} คะแนน)</span></p>}
             </div>
-          ) : (
-            <p className="center-text muted">รอ host เริ่มรอบใหม่ หรือกด "ออก" เพื่อกลับหน้าแรก</p>
-          )}
-        </div>
-      )}
+            {winner && <div className="finish-winner">
+              <span className="finish-rank">1</span>
+              <span className="finish-name">{winner.name}{winner.isHost && <em className="badge">host</em>}{winner.id === meId && <em className="badge you">คุณ</em>}</span>
+              <span className="finish-points">+{winner.score.toLocaleString()}</span>
+              <strong>{winner.score.toLocaleString()}</strong>
+            </div>}
+            {leaderboard.length > 1 && <details className="finish-others">
+              <summary>ดูอันดับทั้งหมด <span>{leaderboard.length} คน</span></summary>
+              <Leaderboard list={leaderboard} meId={meId} />
+            </details>}
+            {isHost ? (
+              <button className="btn primary big finish-replay" onClick={() => socket.emit("game:reset")}>เล่นอีกรอบ</button>
+            ) : (
+              <p className="finish-wait">รอ host เริ่มรอบใหม่ หรือกด “ออก” เพื่อกลับหน้าแรก</p>
+            )}
+          </section>
+        );
+      })()}
     </div>
   );
 }

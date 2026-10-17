@@ -578,6 +578,28 @@ body {
 .shared-playlist strong { overflow: hidden; color: #f6f2f7; text-overflow: ellipsis; white-space: nowrap; font-size: .83rem; }
 .shared-playlist small { color: #a9a6b0; font-size: .7rem; }
 .shared-playlist > b { color: var(--green); }
+/* End of game */
+.room:has(.finish-screen) { max-width: 740px; }
+.finish-screen { display: flex; flex-direction: column; gap: 12px; width: 100%; }
+.finish-hero { display: flex; flex-direction: column; align-items: center; padding: 10px 0 1px; text-align: center; }
+.finish-trophy { margin-bottom: 5px; font-size: 2.65rem; line-height: 1.1; filter: drop-shadow(0 7px 16px #f0b94933); }
+.finish-hero .eyebrow { font-size: .68rem; letter-spacing: .15em; }
+.finish-hero h2 { margin-top: 3px; font-size: 1.22rem; }
+.finish-hero p { margin-top: 2px; font-size: .92rem; }
+.finish-hero p strong { color: var(--green); }
+.finish-hero p span { color: var(--muted); }
+.finish-winner { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; min-height: 46px; padding: 8px 12px; border: 1px solid #83d474; border-radius: 13px; background: #a6f0c21b; }
+.finish-rank { display: grid; width: 22px; height: 22px; place-items: center; border-radius: 50%; color: #1b2118; background: #f4c83f; font-weight: 800; font-size: .8rem; }
+.finish-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.finish-points { color: var(--green); font-size: .82rem; font-weight: 700; }
+.finish-winner > strong { min-width: 48px; text-align: right; font-variant-numeric: tabular-nums; }
+.finish-others { overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: #ffffff05; }
+.finish-others summary { display: flex; justify-content: space-between; padding: 11px 13px; cursor: pointer; font-size: .86rem; font-weight: 700; }
+.finish-others summary span { color: var(--muted); font-weight: 500; }
+.finish-others > .board { margin: 0 12px 12px; }
+.finish-replay { margin-top: 0; border: 0 !important; border-radius: 13px !important; background: linear-gradient(100deg, #b5f879, #7ce2b0) !important; box-shadow: 0 9px 25px #8fe9ab20; }
+.finish-replay:hover:not(:disabled) { filter: brightness(1.06); }
+.finish-wait { padding: 5px 4px; color: var(--muted); text-align: center; font-size: .86rem; }
 @media (max-width: 760px) {
   .home-topbar { height: 64px; }
   .action-card { min-height: 375px; }
