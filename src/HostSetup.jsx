@@ -17,10 +17,16 @@ const GENRES = [
   { label: "Country", query: "Country" },
   { label: "Metal", query: "Metal" },
 ];
+const DECADES = [1950, 1960, 1970, 1980, 1990, 2000, 2010, 2020].map((year) => ({
+  label: `${String(year).slice(-2)}s`,
+  query: `${year}s`,
+}));
 
 export default function HostSetup({ room, picked, setPicked, playerStatus, playerRef, onCopyLink, onLeave }) {
   const [playlists, setPlaylists] = useState(null);
   const [filter, setFilter] = useState("");
+  const [selectedGenre, setSelectedGenre] = useState(null);
+  const [selectedDecade, setSelectedDecade] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const sources = picked.sources;
@@ -68,6 +74,16 @@ export default function HostSetup({ room, picked, setPicked, playerStatus, playe
   };
 
   const setSetting = (settings) => socket.emit("room:settings", { settings });
+  const setCatalogFilters = (genre, decade) => {
+    setSelectedGenre(genre);
+    setSelectedDecade(decade);
+    setFilter([genre?.query, decade?.query].filter(Boolean).join(" ") || "hits");
+  };
+  const editSearch = (value) => {
+    setSelectedGenre(null);
+    setSelectedDecade(null);
+    setFilter(value);
+  };
   const start = () => {
     setErr("");
     playerRef.current?.activate();
@@ -104,8 +120,18 @@ export default function HostSetup({ room, picked, setPicked, playerStatus, playe
           <div className="chips">{sources.map((source) => <span className="chip" key={source.key}><em>Deezer</em>{source.name}<span className="muted"> · {source.tracks.length} เพลง</span><button className="x" onClick={() => remove(source.key)} aria-label={`นำ ${source.name} ออก`}>×</button></span>)}</div>
           <span className="muted small">รวม {pool.length} เพลง{pool.length < 4 ? " · ต้องมีอย่างน้อย 4 เพลง" : ` · เล่น ${Math.min(room.settings.rounds, pool.length)} ข้อ`}</span>
         </div>}
-        <input className="input" placeholder="ค้นหาเพลย์ลิสต์ เช่น pop hits, k-pop…" value={filter} onChange={(event) => setFilter(event.target.value)} />
-        <div className="genre-pills">{GENRES.map((genre) => <button key={genre.label} type="button" className={filter.toLowerCase() === genre.query.toLowerCase() ? "genre-pill active" : "genre-pill"} onClick={() => setFilter(genre.query)}>{genre.label}</button>)}</div>
+        <input className="input" placeholder="ค้นหาเพลย์ลิสต์ เช่น pop hits, k-pop…" value={filter === "hits" ? "" : filter} onChange={(event) => editSearch(event.target.value)} />
+        <div className="catalog-filter-group">
+          <span className="catalog-filter-label">แนวเพลง</span>
+          <div className="genre-pills">{GENRES.map((genre) => <button key={genre.label} type="button" className={selectedGenre?.label === genre.label ? "genre-pill active" : "genre-pill"} onClick={() => setCatalogFilters(selectedGenre?.label === genre.label ? null : genre, selectedDecade)}>{genre.label}</button>)}</div>
+        </div>
+        <div className="catalog-filter-group">
+          <span className="catalog-filter-label">ยุคเพลง · เลือกช่วงละ 10 ปี</span>
+          <div className="genre-pills decade-pills">
+            <button type="button" className={!selectedDecade && filter === "hits" ? "genre-pill active" : "genre-pill"} onClick={() => setCatalogFilters(selectedGenre, null)}>ทุกยุค</button>
+            {DECADES.map((decade) => <button key={decade.query} type="button" className={selectedDecade?.query === decade.query ? "genre-pill active" : "genre-pill"} onClick={() => setCatalogFilters(selectedGenre, selectedDecade?.query === decade.query ? null : decade)}>{decade.label}</button>)}
+          </div>
+        </div>
         <ul className="playlists">
           {playlists === null && <li className="muted">กำลังค้นหาเพลย์ลิสต์…</li>}
           {playlists && shown.length === 0 && <li className="muted">ไม่พบเพลย์ลิสต์ ลองค้นคำอื่น</li>}
