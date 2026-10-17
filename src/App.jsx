@@ -7,6 +7,15 @@ const SESSION_KEY = "st_session";
 const AVATARS = ["momo", "kai", "lily", "tae", "jun", "pond"];
 const AVATAR_NAMES = { momo: "Momo", kai: "Kai", lily: "Lily", tae: "Tae", jun: "Jun", pond: "Pond" };
 const avatarUrl = (id) => `/avatar/${AVATARS.includes(id) ? id : "momo"}.png`;
+const resultTaunts = {
+  correct: ["เก่งเกินเพื่อนแล้ว!", "หูเทพจัด รอบนี้ยอมให้", "โอ้โห เซียนมาเอง!", "ตอบถูกแบบหล่อ ๆ เลยนะ"],
+  wrong: ["โง่เกิน เพลงใบ้ดังขนาดนี้ยังพลาด", "หูอยู่ไหนก่อนเพื่อน?", "มั่วเก่งมาก แต่ผิดนะ", "เพลงนี้ยังจำไม่ได้ เอาจริงดิ", "สมองโหลดเพลงไม่ทันเหรอ?"],
+  timeout: ["ช้าเป็นเต่าคลาน เพลงจบแล้วยังคิดอยู่", "เงียบเลยนะ หรือหูดับ?", "หมดเวลาแล้วเพื่อน ตื่นก่อน", "คิดนานจนเพลงเปลี่ยนละ!"],
+};
+const chooseResultTaunt = (kind, seed = "") => {
+  const hash = [...String(seed)].reduce((sum, char) => (sum * 31 + char.charCodeAt(0)) >>> 0, 0);
+  return resultTaunts[kind][hash % resultTaunts[kind].length];
+};
 
 function AvatarPicker({ value, onChange, compact = false }) {
   return <div className={`avatar-picker${compact ? " compact" : ""}`}>
@@ -186,7 +195,7 @@ function Home({ name, setName, avatar, setAvatar, busy, error, initialCode, onCr
       <header className="home-topbar">
         <div className="brand-mark"><span>SONG</span><strong>TRIVIA</strong></div>
         <h1>Play with <em>friends</em></h1>
-        <span className="language-pill">◎ &nbsp; EN <b>⌄</b></span>
+        <span className="language-pill">◎ &nbsp; EN </span>
       </header>
 
       <div className="side-note side-note-left">PLAY<br />LISTEN<br />GUESS<br />TOGETHER<br /><span>♡</span></div>
@@ -237,7 +246,7 @@ function Home({ name, setName, avatar, setAvatar, busy, error, initialCode, onCr
         {error && <div className="alert home-alert">{error}</div>}
       </main>
 
-      <footer className="home-footer"><span>🌙</span><div><strong>Shh, the ad is taking a nap</strong><small>Enjoy the quiet and keep playing 🎶</small></div></footer>
+      <footer className="home-footer"><span>🌙</span><div><strong>ขอตังหน่อยครับ</strong><small>0657380808 พพ 🎶</small></div></footer>
     </div>
   );
 }
@@ -603,7 +612,7 @@ export default function App() {
                 const result = reveal.results.find((item) => item.id === meId);
                 if (!result) return null;
                 return <div className={`verdict ${result.correct ? "ok" : "no"}`}>
-                  {result.correct ? `ถูกต้อง! +${result.points} คะแนน` : result.choice === null ? "หมดเวลา ยังไม่ได้ตอบ" : "คำตอบไม่ถูกต้อง"}
+                  {result.correct ? `${chooseResultTaunt("correct", `${result.id}-${reveal.index}`)} +${result.points} คะแนน` : result.choice === null ? chooseResultTaunt("timeout", `${result.id}-${reveal.index}`) : chooseResultTaunt("wrong", `${result.id}-${reveal.index}`)}
                   {result.responseSeconds !== null && <small>ตอบใน {result.responseSeconds.toFixed(2)} วินาที</small>}
                 </div>;
               })()}

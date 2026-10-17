@@ -307,7 +307,7 @@ body { background: linear-gradient(180deg, #1c3475 0, #101f50 43%, #0b1740 100%)
 .language-pill { justify-self: end; color: #dce6ff; font-size: .72rem; border: 1px solid #3b5189; background: #0c1942; border-radius: 999px; padding: 8px 12px; }
 .language-pill b { color: var(--green); }
 .home-main { width: min(100%, 805px); flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 16px; padding: 26px 0 20px; }
-.nickname-field { width: min(100%, 360px); display: flex; align-items: center; gap: 12px; align-self: center; color: #c5d3f8; font-size: .82rem; }
+.nickname-field { width: min(100%, 360px); display: flex; align-items: center; gap: 12px; align-self: center; color: #c5d3f8; font-size: .99rem; }
 .nickname-field span { white-space: nowrap; }
 .nickname-field .input { min-width: 0; padding: 9px 13px; border-radius: 11px; background: #0b1943cc; }
 .home-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
