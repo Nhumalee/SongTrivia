@@ -141,6 +141,25 @@ function Timer({ endsAt, offset, seconds }) {
   );
 }
 
+function RevealCountdown({ remainingMs, paused }) {
+  const [left, setLeft] = useState(remainingMs || 0);
+  useEffect(() => {
+    const duration = Math.max(0, Number(remainingMs) || 0);
+    setLeft(duration);
+    if (paused) return;
+    const endsAt = Date.now() + duration;
+    const tick = () => setLeft(Math.max(0, endsAt - Date.now()));
+    tick();
+    const id = setInterval(tick, 100);
+    return () => clearInterval(id);
+  }, [remainingMs, paused]);
+  const pct = Math.min(100, (left / 5000) * 100);
+  return <div className={`reveal-countdown${paused ? " paused" : ""}`}>
+    <div><span>{paused ? "หยุดตัวนับเวลาแล้ว" : "ข้อต่อไปใน"}</span><strong>{paused ? "Ⅱ" : `${Math.ceil(left / 1000)} วิ`}</strong></div>
+    <div className="reveal-countdown-track"><i style={{ width: `${pct}%` }} /></div>
+  </div>;
+}
+
 function Leaderboard({ list, meId, compact }) {
   return (
     <ol className={"board" + (compact ? " compact" : "")}>
@@ -535,7 +554,7 @@ export default function App() {
         </div>
       )}
 
-      {!starting && phase === "question" && question && (
+      {!starting && ((phase === "question" && question) || (phase === "reveal" && reveal && question)) && (
         <div className="game-layout">
           <main className="game-main stack">
           <div className="qhead game-qhead">
@@ -573,6 +592,44 @@ export default function App() {
               จบข้อนี้เลย
             </button>
           )}
+          {phase === "reveal" && reveal && (
+            <section className="game-reveal-overlay" aria-live="polite">
+              <div className="reveal-title"><span className="eyebrow">ROUND {reveal.index + 1} RESULT</span><h2>เฉลยเพลง</h2></div>
+              <div className="trackcard">
+                {reveal.track.cover && <img src={reveal.track.cover} alt="" />}
+                <div><h2>{reveal.track.title}</h2><p className="muted">{reveal.track.artist}</p></div>
+              </div>
+              {(() => {
+                const result = reveal.results.find((item) => item.id === meId);
+                if (!result) return null;
+                return <div className={`verdict ${result.correct ? "ok" : "no"}`}>
+                  {result.correct ? `ถูกต้อง! +${result.points} คะแนน` : result.choice === null ? "หมดเวลา ยังไม่ได้ตอบ" : "คำตอบไม่ถูกต้อง"}
+                  {result.responseSeconds !== null && <small>ตอบใน {result.responseSeconds.toFixed(2)} วินาที</small>}
+                </div>;
+              })()}
+              <section className="answer-results card">
+                <h3>อันดับคำตอบรอบนี้</h3>
+                <ol>{[...reveal.results].sort((a, b) => {
+                  const group = (item) => item.correct ? 0 : item.choice === null ? 2 : 1;
+                  return group(a) - group(b) || (a.responseSeconds ?? Infinity) - (b.responseSeconds ?? Infinity);
+                }).map((result) => <li key={result.id} className={result.correct ? "correct" : result.choice === null ? "unanswered" : "incorrect"}>
+                  <span className="answer-rank">{result.correct ? `#${result.answerRank}` : "–"}</span>
+                  <strong>{result.name || room.players.find((player) => player.id === result.id)?.name || "Player"}</strong>
+                  <span className="answer-time">{result.responseSeconds === null ? "ไม่ตอบ" : `${result.responseSeconds.toFixed(2)} วินาที`}</span>
+                  <b>{result.correct ? `+${result.points}` : result.choice === null ? "—" : "+0"}</b>
+                </li>)}</ol>
+              </section>
+              <RevealCountdown remainingMs={room.revealRemainingMs ?? reveal.nextInMs ?? 5000} paused={room.revealPaused} />
+              {isHost ? <div className="reveal-actions">
+                <button className="btn ghost" onClick={() => socket.emit("game:toggleRevealPause")}>
+                  {room.revealPaused ? "เล่นเวลาต่อ" : "หยุดชั่วคราว"}
+                </button>
+                <button className="btn primary big" onClick={() => socket.emit("game:skip")}>
+                  {reveal.isLast ? "ดูผลสุดท้ายเลย" : "ไปข้อถัดไปเลย →"}
+                </button>
+              </div> : <p className="center-text muted">{room.revealPaused ? "host หยุดเฉลยชั่วคราว" : "เกมจะไปข้อถัดไปอัตโนมัติ"}</p>}
+            </section>
+          )}
           </main>
           <aside className="game-score-panel card">
             <div className="score-panel-heading"><div><span className="eyebrow">LIVE SCORE</span><h2>อันดับคะแนน</h2></div><span className="live-dot">LIVE</span></div>
@@ -580,68 +637,6 @@ export default function App() {
             <Leaderboard list={room.players} meId={meId} compact />
             <p className="score-live-hint">คะแนนจะปรับตามคำตอบถูก และอันดับอาจเปลี่ยนจนกว่าจะเฉลย</p>
           </aside>
-        </div>
-      )}
-
-      {!starting && phase === "reveal" && reveal && (
-        <div className="stack">
-          <div className="qhead">
-            <span>
-              เฉลยข้อ {reveal.index + 1}
-            </span>
-          </div>
-          <div className="trackcard">
-            {reveal.track.cover && <img src={reveal.track.cover} alt="" />}
-            <div>
-              <h2>{reveal.track.title}</h2>
-              <p className="muted">{reveal.track.artist}</p>
-            </div>
-          </div>
-          {(() => {
-            const r = reveal.results.find((x) => x.id === meId);
-            if (!r) return null;
-            const gain = me?.lastGain || 0;
-            return (
-              <div className={"verdict " + (r.correct ? "ok" : "no")}>
-                {r.correct ? `ถูกต้อง! +${gain}` : r.choice === null ? "ไม่ได้ตอบ" : "ผิดนะ"}
-              </div>
-            );
-          })()}
-          <section className="answer-results card">
-            <h3>เวลาตอบและคะแนนรอบนี้</h3>
-            <ol>
-              {[...reveal.results].sort((a, b) => {
-                const group = (item) => item.correct ? 0 : item.choice === null ? 2 : 1;
-                return group(a) - group(b) || (a.responseSeconds ?? Infinity) - (b.responseSeconds ?? Infinity);
-              }).map((result) => (
-                <li key={result.id} className={result.correct ? "correct" : result.choice === null ? "unanswered" : "incorrect"}>
-                  <span className="answer-rank">{result.correct ? `#${result.answerRank}` : "–"}</span>
-                  <strong>{result.name || room.players.find((player) => player.id === result.id)?.name || "Player"}</strong>
-                  <span className="answer-time">{result.responseSeconds === null ? "ไม่ตอบ" : `${result.responseSeconds.toFixed(2)} วินาที`}</span>
-                  <b>{result.correct ? `ถูก +${result.points}` : result.choice === null ? "—" : "ผิด +0"}</b>
-                </li>
-              ))}
-            </ol>
-          </section>
-          <div className="options small-opts">
-            {question?.options?.map((o, i) => (
-              <div
-                key={i}
-                className={"opt o" + i + (i === reveal.correctIndex ? " correct" : " dim") + (myChoice === i && i !== reveal.correctIndex ? " wrong" : "")}
-              >
-                <b>{SHAPES[i]}</b>
-                <span>{o}</span>
-              </div>
-            ))}
-          </div>
-          <Leaderboard list={reveal.leaderboard} meId={meId} compact />
-          {isHost ? (
-            <button className="btn primary big" onClick={() => socket.emit("game:skip")}>
-              {reveal.isLast ? "ดูผลสุดท้าย" : "ข้อต่อไป →"}
-            </button>
-          ) : (
-            <p className="center-text muted">กำลังไปข้อต่อไปอัตโนมัติ…</p>
-          )}
         </div>
       )}
 

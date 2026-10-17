@@ -27,7 +27,7 @@ app.get("/api/deezer/*", async (req, res) => {
 const DEFAULTS = { rounds: 10, seconds: 30 };
 const LIMITS = { rounds: [3, 30], seconds: [8, 60], players: 12, name: 16 };
 const AVATARS = new Set(["momo", "kai", "lily", "tae", "jun", "pond"]);
-const REVEAL_MS = 6000;
+const REVEAL_MS = 5000;
 const ROOM_TTL_MS = 1000 * 60 * 60 * 3;
 
 /** @type {Map<string, any>} */
@@ -74,6 +74,10 @@ function publicRoom(room) {
     settings: room.settings,
     playlistName: room.playlistName || null,
     playlists: room.playlists || [],
+    revealPaused: room.phase === "reveal" && !!room.revealPaused,
+    revealRemainingMs: room.phase === "reveal"
+      ? Math.max(0, room.revealPaused ? room.revealRemainingMs : (room.revealEndsAt || Date.now()) - Date.now())
+      : null,
     hostId: room.hostId,
     players: leaderboard(room),
   };
@@ -142,6 +146,9 @@ function endQuestion(room) {
   if (room.phase !== "question") return;
   clearTimeout(room.timer);
   room.phase = "reveal";
+  room.revealPaused = false;
+  room.revealRemainingMs = REVEAL_MS;
+  room.revealEndsAt = Date.now() + REVEAL_MS;
   const q = room.questions[room.index];
 
   const { pointsByPlayer, rankByPlayer } = updateLiveScores(room, q);
@@ -185,6 +192,9 @@ function endQuestion(room) {
 function nextStep(room) {
   if (room.phase !== "reveal") return;
   clearTimeout(room.timer);
+  room.revealPaused = false;
+  room.revealRemainingMs = null;
+  room.revealEndsAt = null;
   if (room.index + 1 >= room.questions.length) {
     room.phase = "finished";
     io.to(room.code).emit("finished", { leaderboard: leaderboard(room) });
@@ -249,6 +259,9 @@ io.on("connection", (socket) => {
       index: 0,
       answers: new Map(),
       timer: null,
+      revealPaused: false,
+      revealRemainingMs: null,
+      revealEndsAt: null,
       createdAt: Date.now(),
       playlistName: null,
       playlists: [],
@@ -379,6 +392,23 @@ io.on("connection", (socket) => {
     else broadcastRoom(room);
   });
 
+  socket.on("game:toggleRevealPause", () => {
+    if (!room || playerId !== room.hostId || room.phase !== "reveal") return;
+    if (room.revealPaused) {
+      const remaining = Math.max(0, Number(room.revealRemainingMs) || 0);
+      room.revealPaused = false;
+      room.revealEndsAt = Date.now() + remaining;
+      if (remaining <= 0) return nextStep(room);
+      room.timer = setTimeout(() => nextStep(room), remaining);
+    } else {
+      room.revealRemainingMs = Math.max(0, (room.revealEndsAt || Date.now()) - Date.now());
+      room.revealPaused = true;
+      room.revealEndsAt = null;
+      clearTimeout(room.timer);
+    }
+    broadcastRoom(room);
+  });
+
   socket.on("game:skip", () => {
     if (!room || playerId !== room.hostId) return;
     if (room.phase === "reveal") nextStep(room);
@@ -389,6 +419,9 @@ io.on("connection", (socket) => {
     if (!room || playerId !== room.hostId) return ack(cb, { ok: false });
     clearTimeout(room.timer);
     room.phase = "lobby";
+    room.revealPaused = false;
+    room.revealRemainingMs = null;
+    room.revealEndsAt = null;
     room.questions = [];
     room.index = 0;
     room.roundBaseScores = null;
