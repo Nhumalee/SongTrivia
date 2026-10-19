@@ -20,9 +20,14 @@ const isAllowedOrigin = (origin) => {
     return allowedOrigins.has(normalized) || (process.env.NODE_ENV !== "production" && (developmentOrigins.has(normalized) || new URL(normalized).hostname.endsWith(".loca.lt")));
   } catch { return false; }
 };
+const requestOrigin = (request) => {
+  if (request.headers.origin) return request.headers.origin;
+  try { return new URL(request.headers.referer).origin; }
+  catch { return undefined; }
+};
 const io = new Server(server, {
   cors: { origin: (origin, callback) => callback(null, isAllowedOrigin(origin)), methods: ["GET", "POST"] },
-  allowRequest: (request, callback) => callback(null, isAllowedOrigin(request.headers.origin)),
+  allowRequest: (request, callback) => callback(null, isAllowedOrigin(requestOrigin(request))),
   maxHttpBufferSize: 128 * 1024,
 });
 
