@@ -7,6 +7,8 @@ const PACKS = [
   { id: "world", title: "World Mix", icon: "🌍", text: "A mix of cities and regions around the world." },
   { id: "famous", title: "Famous Places", icon: "🏛️", text: "Recognizable landmarks and popular destinations." },
   { id: "thailand", title: "Thailand", icon: "🇹🇭", text: "Explore destinations across Thailand." },
+  { id: "continents", title: "Continents", icon: "🌐", text: "Travel across all six inhabited continents." },
+  { id: "stadiums", title: "Football Stadiums", icon: "🏟️", text: "Explore the streets around famous football grounds." },
 ];
 
 export default function HostSetup({ room }) {

@@ -173,6 +173,21 @@ const GEO_PACKS = {
     { lat: 19.9072, lng: 99.8309, heading: 150 }, { lat: 15.2287, lng: 104.8564, heading: 200 },
     { lat: 13.3611, lng: 100.9847, heading: 20 }, { lat: 8.0863, lng: 98.9063, heading: 90 },
   ] },
+  continents: { title: "Continents", locations: [
+    { lat: 35.6895, lng: 139.6917, heading: 150 }, { lat: 13.7563, lng: 100.5018, heading: 35 }, { lat: 1.3521, lng: 103.8198, heading: 135 }, { lat: 37.5665, lng: 126.978, heading: 45 },
+    { lat: 51.5072, lng: -0.1276, heading: 280 }, { lat: 48.8584, lng: 2.2945, heading: 220 }, { lat: 41.9028, lng: 12.4964, heading: 90 }, { lat: 59.3293, lng: 18.0686, heading: 200 },
+    { lat: -33.9249, lng: 18.4241, heading: 20 }, { lat: -26.2041, lng: 28.0473, heading: 180 }, { lat: -1.2921, lng: 36.8219, heading: 270 }, { lat: 30.0444, lng: 31.2357, heading: 90 },
+    { lat: 40.7128, lng: -74.006, heading: 110 }, { lat: 43.6532, lng: -79.3832, heading: 190 }, { lat: 19.4326, lng: -99.1332, heading: 5 }, { lat: 37.7749, lng: -122.4194, heading: 315 },
+    { lat: -22.9068, lng: -43.1729, heading: 240 }, { lat: -34.6037, lng: -58.3816, heading: 55 }, { lat: -23.5505, lng: -46.6333, heading: 315 }, { lat: -12.0464, lng: -77.0428, heading: 150 },
+    { lat: -33.8688, lng: 151.2093, heading: 20 }, { lat: -37.8136, lng: 144.9631, heading: 170 }, { lat: -36.8509, lng: 174.7645, heading: 270 }, { lat: -31.9505, lng: 115.8605, heading: 90 },
+  ] },
+  stadiums: { title: "Football Stadiums", locations: [
+    { lat: 51.556, lng: -0.2796, heading: 90 }, { lat: 53.4631, lng: -2.2913, heading: 180 }, { lat: 51.5549, lng: -0.1084, heading: 0 }, { lat: 53.4308, lng: -2.9608, heading: 270 },
+    { lat: 40.4531, lng: -3.6883, heading: 180 }, { lat: 41.3809, lng: 2.1228, heading: 90 }, { lat: 48.2188, lng: 11.6247, heading: 270 }, { lat: 51.4926, lng: 7.4519, heading: 90 },
+    { lat: 45.4781, lng: 9.1239, heading: 0 }, { lat: 45.1096, lng: 7.6413, heading: 180 }, { lat: 48.8414, lng: 2.253, heading: 90 }, { lat: 35.6778, lng: 139.7144, heading: 270 },
+    { lat: -22.9121, lng: -43.2302, heading: 90 }, { lat: -34.6357, lng: -58.3649, heading: 180 }, { lat: -26.2348, lng: 27.9825, heading: 270 }, { lat: 13.7541, lng: 100.6221, heading: 0 },
+    { lat: 19.3029, lng: -99.1505, heading: 180 }, { lat: -33.4489, lng: -70.6536, heading: 90 }, { lat: 38.708, lng: -9.14, heading: 270 }, { lat: 50.0686, lng: 19.991, heading: 90 },
+  ] },
 };
 const geoMonthlyUsage = new Map();
 function currentGeoUsage() {
@@ -604,7 +619,7 @@ io.on("connection", (socket) => {
     if (settings) {
       room.settings.rounds = clamp(settings.rounds ?? room.settings.rounds, LIMITS.rounds);
       room.settings.seconds = clamp(settings.seconds ?? room.settings.seconds, LIMITS.seconds);
-      if (["world", "famous", "thailand"].includes(settings.geoPack)) room.settings.geoPack = settings.geoPack;
+      if (["world", "famous", "thailand", "continents", "stadiums"].includes(settings.geoPack)) room.settings.geoPack = settings.geoPack;
     }
     if (typeof gameId === "string" && ["song-trivia", "geo-guessr"].includes(gameId)) room.gameId = gameId;
     if (Array.isArray(playlists)) {

@@ -2,21 +2,43 @@ import { useEffect, useRef, useState } from "react";
 import { socket } from "../../socket.js";
 
 const MAP_KEY = import.meta.env.VITE_GOOGLE_MAPS_MAP_KEY || import.meta.env.VITE_GOOGLE_MAPS_MAPS_KEY || "";
-const PACK_NAMES = { world: "World", famous: "Famous Places", thailand: "Thailand" };
+const PACK_NAMES = { world: "World", famous: "Famous Places", thailand: "Thailand", continents: "Continents", stadiums: "Football Stadiums" };
 
 function loadGoogleMaps() {
   if (window.google?.maps) return Promise.resolve(window.google.maps);
-  if (!window.__geoGoogleMapsPromise) window.__geoGoogleMapsPromise = new Promise((resolve, reject) => {
+  if (!window.__geoGoogleMapsPromise) {
     window.gm_authFailure = () => window.dispatchEvent(new Event("geo-google-auth-failure"));
-    const script = document.createElement("script");
-    const timeout = setTimeout(() => reject(new Error("Google Maps did not load")), 15000);
-    script.id = "geo-google-maps-js";
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(MAP_KEY)}&v=weekly&loading=async`;
-    script.async = true;
-    script.onload = () => { clearTimeout(timeout); resolve(window.google.maps); };
-    script.onerror = () => { clearTimeout(timeout); reject(new Error("Google Maps failed to load")); };
-    document.head.appendChild(script);
-  });
+    window.__geoGoogleMapsPromise = (async () => {
+      let lastError;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          return await new Promise((resolve, reject) => {
+            const script = document.createElement("script");
+            const timeout = setTimeout(() => reject(new Error("Google Maps did not load")), 15000);
+            script.id = "geo-google-maps-js";
+            script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(MAP_KEY)}&v=weekly&loading=async`;
+            script.async = true;
+            script.onload = () => {
+              clearTimeout(timeout);
+              const maps = window.google?.maps;
+              if (maps) resolve(maps);
+              else reject(new Error("Google Maps loaded without its API namespace"));
+            };
+            script.onerror = () => { clearTimeout(timeout); reject(new Error("Google Maps failed to load")); };
+            document.head.appendChild(script);
+          });
+        } catch (error) {
+          lastError = error;
+          document.getElementById("geo-google-maps-js")?.remove();
+          if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+      }
+      throw lastError;
+    })().catch((error) => {
+      window.__geoGoogleMapsPromise = null;
+      throw error;
+    });
+  }
   return window.__geoGoogleMapsPromise;
 }
 
@@ -24,7 +46,6 @@ function GeoMap({ guess, onGuess, answer, compact = false }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const googleObjectsRef = useRef(null);
-  const googleFallbackClickRef = useRef(null);
   const callbackRef = useRef({ onGuess, answer });
   const [ready, setReady] = useState(false);
   const [mapError, setMapError] = useState("");
@@ -32,6 +53,7 @@ function GeoMap({ guess, onGuess, answer, compact = false }) {
 
   useEffect(() => {
     let disposed = false;
+    let pointerListeners = null;
     const markGoogleFailed = () => {
       setMapError("Google Maps rejected this API key or website address.");
     };
@@ -41,34 +63,30 @@ function GeoMap({ guess, onGuess, answer, compact = false }) {
     } else loadGoogleMaps().then((google) => {
       if (disposed || !containerRef.current || mapRef.current) return;
       const map = new google.Map(containerRef.current, { center: { lat: 20, lng: 0 }, zoom: 2, minZoom: 2, clickableIcons: false, streetViewControl: false, mapTypeControl: false, fullscreenControl: false, gestureHandling: "greedy" });
-      let lastMapClick = 0;
-      // Some Maps Demo Key/browser combinations swallow the Maps click event.
-      // Convert a plain container click to coordinates as a fallback in that case.
+      let pointerStart = null;
+      let draggedMap = false;
+      let dragResetTimer;
       const mapElement = containerRef.current;
-      const fallbackClick = (event) => setTimeout(() => {
-        if (Date.now() - lastMapClick < 100 || disposed || callbackRef.current.answer || !callbackRef.current.onGuess) return;
-        const projection = map.getProjection();
-        const center = map.getCenter();
-        const zoom = map.getZoom();
-        if (!projection || !center || zoom == null) return;
-        const rect = mapElement.getBoundingClientRect();
-        const centerPoint = projection.fromLatLngToPoint(center);
-        const scale = 2 ** zoom;
-        const point = new google.Point(
-          centerPoint.x + (event.clientX - rect.left - rect.width / 2) / scale,
-          centerPoint.y + (event.clientY - rect.top - rect.height / 2) / scale,
-        );
-        const latLng = projection.fromPointToLatLng(point);
-        if (latLng) callbackRef.current.onGuess({ lat: latLng.lat(), lng: latLng.lng() });
-      }, 120);
-      mapElement.addEventListener("click", fallbackClick);
-      googleFallbackClickRef.current = fallbackClick;
+      const onPointerDown = (event) => { pointerStart = { x: event.clientX, y: event.clientY }; draggedMap = false; clearTimeout(dragResetTimer); };
+      const onPointerMove = (event) => {
+        if (pointerStart && Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y) > 6) draggedMap = true;
+      };
+      const onPointerUp = () => {
+        pointerStart = null;
+        clearTimeout(dragResetTimer);
+        dragResetTimer = setTimeout(() => { draggedMap = false; }, 500);
+      };
+      mapElement.addEventListener("pointerdown", onPointerDown);
+      mapElement.addEventListener("pointermove", onPointerMove);
+      mapElement.addEventListener("pointerup", onPointerUp);
+      mapElement.addEventListener("pointercancel", onPointerUp);
+      pointerListeners = { onPointerDown, onPointerMove, onPointerUp, getDragResetTimer: () => dragResetTimer };
       mapRef.current = map;
       googleObjectsRef.current = { google, markers: [], line: null, clickListener: null };
       googleObjectsRef.current.clickListener = google.event.addListener(map, "click", (event) => {
         const current = callbackRef.current;
         if (!current.answer && current.onGuess && event.latLng) {
-          lastMapClick = Date.now();
+          if (draggedMap) return;
           current.onGuess({ lat: event.latLng.lat(), lng: event.latLng.lng() });
         }
       });
@@ -82,8 +100,13 @@ function GeoMap({ guess, onGuess, answer, compact = false }) {
         googleObjectsRef.current.markers.forEach((marker) => marker.setMap(null));
         googleObjectsRef.current.line?.setMap(null);
         googleObjectsRef.current.google.event.removeListener(googleObjectsRef.current.clickListener);
-        if (containerRef.current && googleFallbackClickRef.current) containerRef.current.removeEventListener("click", googleFallbackClickRef.current);
-        googleFallbackClickRef.current = null;
+        if (containerRef.current && pointerListeners) {
+          containerRef.current.removeEventListener("pointerdown", pointerListeners.onPointerDown);
+          containerRef.current.removeEventListener("pointermove", pointerListeners.onPointerMove);
+          containerRef.current.removeEventListener("pointerup", pointerListeners.onPointerUp);
+          containerRef.current.removeEventListener("pointercancel", pointerListeners.onPointerUp);
+          clearTimeout(pointerListeners.getDragResetTimer());
+        }
         mapRef.current?.unbindAll();
       }
       mapRef.current = null;
@@ -99,8 +122,12 @@ function GeoMap({ guess, onGuess, answer, compact = false }) {
       googleObjects.markers = [];
       googleObjects.line?.setMap(null);
       googleObjects.line = null;
-      const addMarker = (point, color, title) => googleObjects.markers.push(new google.Marker({ map, position: point, title, icon: { path: google.SymbolPath.CIRCLE, scale: compact ? 6 : 8, fillColor: color, fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2 } }));
-      if (guess) addMarker(guess, "#b8e34b", "Your guess");
+      const addMarker = (point, color, title) => {
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="46" viewBox="0 0 36 46"><path d="M18 44C14 37 3 25 3 16a15 15 0 1 1 30 0c0 9-11 21-15 28Z" fill="#101713" opacity=".35" transform="translate(0 1)"/><path d="M18 42C14 35 3 23 3 15a15 15 0 1 1 30 0c0 8-11 20-15 27Z" fill="${color}" stroke="white" stroke-width="3"/><circle cx="18" cy="15" r="5" fill="white" stroke="#172019" stroke-width="2"/></svg>`;
+        const icon = { url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`, scaledSize: new google.Size(compact ? 30 : 36, compact ? 38 : 46), anchor: new google.Point(compact ? 15 : 18, compact ? 37 : 44) };
+        googleObjects.markers.push(new google.Marker({ map, position: point, title, icon, zIndex: title === "Your guess" ? 2 : 3 }));
+      };
+      if (guess) addMarker(guess, "#a8dc24", "Your guess");
       if (answer) {
         addMarker(answer, "#ff765f", "Correct location");
         if (guess) {
@@ -141,25 +168,32 @@ function StreetView({ round, onLoad }) {
       loadGoogleMaps().then((google) => {
         if (disposed || !containerRef.current) return;
         if (!google.StreetViewPanorama) {
-          setError("Street View is unavailable. Enable Maps JavaScript API and Dynamic Street View for this key.");
+          setError("Street View is unavailable. Check that Maps JavaScript API is enabled for this key.");
           return;
         }
-        panorama = new google.StreetViewPanorama(containerRef.current, {
-          position: { lat: round.lat, lng: round.lng },
-          pov: { heading: round.heading || 0, pitch: 0 },
-          zoom: 1,
-          addressControl: false,
-          panControl: true,
-          zoomControl: true,
-          linksControl: true,
-          clickToGo: true,
-          fullscreenControl: true,
-          motionTrackingControl: false,
-          enableCloseButton: false,
-          visible: true,
-        });
-        listeners = [
-          google.event.addListener(panorama, "status_changed", () => {
+        const streetViewService = new google.StreetViewService();
+        streetViewService.getPanorama({
+          location: { lat: round.lat, lng: round.lng },
+          radius: 1000,
+          sources: ["outdoor"],
+        }).then(({ data }) => {
+          if (disposed || !containerRef.current) return;
+          const panoId = data?.location?.pano;
+          if (!panoId) throw new Error("No outdoor Street View image was found within 1 km of this location.");
+          panorama = new google.StreetViewPanorama(containerRef.current, {
+            pov: { heading: round.heading || 0, pitch: 0 },
+            zoom: 1,
+            addressControl: false,
+            panControl: true,
+            zoomControl: true,
+            linksControl: true,
+            clickToGo: true,
+            fullscreenControl: true,
+            motionTrackingControl: false,
+            enableCloseButton: false,
+            visible: true,
+          });
+          listeners = [google.event.addListener(panorama, "status_changed", () => {
             const status = panorama.getStatus?.();
             if (status === google.StreetViewStatus?.OK) {
               setLoading(false);
@@ -170,10 +204,16 @@ function StreetView({ round, onLoad }) {
               }
             } else if (status) {
               setLoading(false);
-              setError(`Street View could not load this location (${status}).`);
+              setError(`Outdoor Street View could not load this location (${status}).`);
             }
-          }),
-        ];
+          })];
+          panorama.setPano(panoId);
+        }).catch((cause) => {
+          if (!disposed) {
+            setError(cause.message || "No outdoor Street View image was found near this location.");
+            setLoading(false);
+          }
+        });
       }).catch((cause) => {
       if (!disposed) setError(cause.message || "Google Maps could not load. Check the API key and restrictions.");
       if (!disposed) setLoading(false);
@@ -190,7 +230,7 @@ function StreetView({ round, onLoad }) {
 
   return <>
     <div ref={containerRef} className="geo-street-view" aria-label="Google Street View panorama" />
-    {error && <div className="geo-street-error" role="status"><strong>Street View unavailable</strong><span>{error}</span><small>Allow http://127.0.0.1:5173/* and http://localhost:5173/* in HTTP referrer restrictions. Enable Maps JavaScript API and Dynamic Street View.</small></div>}
+    {error && <div className="geo-street-error" role="status"><strong>Street View unavailable</strong><span>{error}</span><small>Allow this website in the API key's HTTP referrer restrictions and enable Maps JavaScript API. Only panoramas identified as outdoors are shown.</small></div>}
     {!error && loading && <div className="geo-panorama-loading" role="status">Loading Street View…</div>}
   </>;
 }
