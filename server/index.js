@@ -231,6 +231,16 @@ function distanceKm(a, b) {
   return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
 
+function randomLocationsInArea(area, count) {
+  const { north, south, east, west } = area.bounds;
+  return Array.from({ length: count }, () => ({
+    lat: south + Math.random() * (north - south),
+    lng: west + Math.random() * (east - west),
+    heading: Math.floor(Math.random() * 360),
+    label: area.label,
+  }));
+}
+
 function startGeoRound(room) {
   const location = room.geoLocations[room.geoIndex];
   room.phase = "geo-playing";
@@ -314,7 +324,8 @@ function startQuestion(room) {
   room.phase = "question";
   room.answers = new Map();
   room.roundBaseScores = new Map([...room.players.values()].map((player) => [player.id, player.score]));
-  room.endsAt = Date.now() + room.settings.seconds * 1000;
+  room.questionStartedAt = Date.now();
+  room.endsAt = room.questionStartedAt + room.settings.seconds * 1000;
   for (const p of room.players.values()) p.lastGain = 0;
 
   const base = {
@@ -326,11 +337,13 @@ function startQuestion(room) {
     seconds: room.settings.seconds,
   };
   io.to(room.code).emit("question", base);
-  // host เท่านั้นที่ได้ข้อมูลเพลงสำหรับเล่นเสียง
+  // ส่ง URL preview ให้ผู้เล่นทุกคน เพื่อให้แต่ละเครื่องเล่นเสียงเอง
   io.to(room.code).emit("question:play", {
     index: room.index,
     previewUrl: q.previewUrl,
     positionMs: q.positionMs,
+    startsAt: room.questionStartedAt,
+    serverNow: Date.now(),
   });
   broadcastRoom(room);
 
@@ -500,6 +513,7 @@ io.on("connection", (socket) => {
     const payload = { ok: true, code: r.code, playerId: p.id, room: publicRoom(r) };
     if (r.phase === "question") {
       const q = r.questions[r.index];
+      const now = Date.now();
       payload.question = {
         index: r.index,
         total: r.questions.length,
@@ -508,6 +522,14 @@ io.on("connection", (socket) => {
         serverNow: Date.now(),
         seconds: r.settings.seconds,
       };
+      if (r.gameId === "song-trivia") {
+        payload.playback = {
+          previewUrl: q.previewUrl,
+          positionMs: q.positionMs + Math.max(0, now - (r.questionStartedAt || now)),
+          startsAt: now,
+          serverNow: now,
+        };
+      }
       payload.answered = r.answers.has(p.id) ? r.answers.get(p.id).choice : null;
     }
     ack(cb, payload);
@@ -573,16 +595,26 @@ io.on("connection", (socket) => {
     setTimeout(() => startQuestion(room), 2500);
   });
 
-  socket.on("geo:start", ({ pack } = {}, cb) => {
+  socket.on("geo:start", ({ pack, area } = {}, cb) => {
     if (!room || playerId !== room.hostId || room.gameId !== "geo-guessr") return ack(cb, { ok: false, error: "Only the host can start this game." });
     if (room.phase !== "lobby" && room.phase !== "finished") return ack(cb, { ok: false, error: "Game is already running." });
     clearTimeout(room.timer);
     const selectedPack = GEO_PACKS[pack] ? pack : (room.settings.geoPack || "world");
     room.settings.geoPack = selectedPack;
-    const locations = [...GEO_PACKS[selectedPack].locations];
-    for (let i = locations.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [locations[i], locations[j]] = [locations[j], locations[i]];
+    let locations;
+    if (area) {
+      const bounds = area.bounds || {};
+      const numbers = [bounds.south, bounds.west, bounds.north, bounds.east].map(Number);
+      const [south, west, north, east] = numbers;
+      if (!String(area.label || "").trim() || numbers.some((value) => !Number.isFinite(value)) || south < -85 || north > 85 || south >= north || west < -180 || east > 180 || west >= east)
+        return ack(cb, { ok: false, error: "The selected area has invalid map bounds. Search for the area again." });
+      locations = randomLocationsInArea({ label: String(area.label).slice(0, 160), bounds: { south, west, north, east } }, clamp(room.settings.rounds, LIMITS.rounds));
+    } else {
+      locations = [...GEO_PACKS[selectedPack].locations];
+      for (let i = locations.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [locations[i], locations[j]] = [locations[j], locations[i]];
+      }
     }
     room.geoLocations = locations.slice(0, clamp(room.settings.rounds, LIMITS.rounds));
     room.geoIndex = 0;
@@ -606,11 +638,14 @@ io.on("connection", (socket) => {
   socket.on("geo:guess", ({ lat, lng }, cb) => {
     if (!room || room.phase !== "geo-playing" || !Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 85 || Math.abs(lng) > 180)
       return ack(cb, { ok: false });
-    if (room.geoAnswers.has(playerId)) return ack(cb, { ok: false });
     room.geoAnswers.set(playerId, { lat: Number(lat), lng: Number(lng) });
     ack(cb, { ok: true });
+    const connectedPlayers = [...room.players.values()].filter((player) => player.connected);
+    if (connectedPlayers.length > 0 && connectedPlayers.every((player) => room.geoAnswers.has(player.id))) {
+      finishGeoRound(room);
+      return;
+    }
     broadcastRoom(room);
-    if ([...room.players.values()].filter((player) => player.connected).every((player) => room.geoAnswers.has(player.id))) finishGeoRound(room);
   });
 
   socket.on("geo:next", () => {

@@ -103,6 +103,10 @@ function usePlayer(enabled, onError) {
   useEffect(() => {
     if (!enabled) return;
     let dead = false;
+    let unlockedForPlayback = false;
+    let activating = false;
+    let pendingPlayback = null;
+    let playTimer = null;
     setUnlocked(false);
     const audio = new Audio();
     audio.preload = "auto";
@@ -111,29 +115,50 @@ function usePlayer(enabled, onError) {
     ref.current = {
       audio,
       activate() {
-        // Prime playback inside the host's Start click so browsers allow the first preview.
+        if (activating || unlockedForPlayback) return;
+        activating = true;
+        // Unlock audio from a gesture on each player's own device.
         audio.muted = true;
         audio.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=";
-        audio.play().then(() => { audio.pause(); audio.removeAttribute("src"); audio.load(); audio.muted = false; }).catch(() => { audio.muted = false; });
+        audio.play().then(() => {
+          audio.pause();
+          audio.removeAttribute("src");
+          audio.load();
+          audio.muted = false;
+          activating = false;
+          unlockedForPlayback = true;
+          if (pendingPlayback) ref.current?.play(pendingPlayback.url, pendingPlayback.positionMs, pendingPlayback.startsAt, pendingPlayback.offset);
+        }).catch(() => { audio.muted = false; activating = false; });
         setUnlocked(true);
       },
-      play(url, positionMs = 0) {
+      play(url, positionMs = 0, startsAt = Date.now(), offset = 0) {
         if (!url) return onError("เพลงนี้ไม่มีคลิปตัวอย่าง");
+        pendingPlayback = { url, positionMs, startsAt, offset };
+        clearTimeout(playTimer);
         audio.src = url;
         const start = () => {
           audio.onloadedmetadata = null;
-          audio.currentTime = Math.min(27, Math.max(0, positionMs / 1000));
-          audio.play().catch(() => onError("เปิดเสียงบนเครื่องนี้ก่อนเริ่มเกมเพื่อฟังคลิปเพลง"));
+          if (pendingPlayback?.url !== url) return;
+          const clientStartsAt = startsAt - offset;
+          const elapsedMs = Math.max(0, Date.now() - clientStartsAt);
+          audio.currentTime = Math.min(29, Math.max(0, (positionMs + elapsedMs) / 1000));
+          playTimer = setTimeout(() => {
+            if (pendingPlayback?.url !== url) return;
+            audio.play().then(() => { unlockedForPlayback = true; }).catch(() => {
+              if (!unlockedForPlayback) return;
+              onError("แตะหน้าจอหรือกดปุ่มใดก็ได้เพื่อเปิดเสียงบนอุปกรณ์นี้");
+            });
+          }, Math.max(0, clientStartsAt - Date.now()));
         };
         if (audio.readyState >= 1) start();
         else audio.onloadedmetadata = start;
       },
-      pause: () => audio.pause(),
+      pause: () => { clearTimeout(playTimer); pendingPlayback = null; audio.pause(); },
       setVolume: (value) => {
         audio.volume = value;
         audio.muted = value === 0;
       },
-      disconnect: () => { audio.pause(); audio.removeAttribute("src"); },
+      disconnect: () => { clearTimeout(playTimer); pendingPlayback = null; audio.pause(); audio.removeAttribute("src"); },
     };
     setStatus("ready");
     return () => {
@@ -167,6 +192,18 @@ function VolumeControl({ volume, muted, ready, setVolume, toggleMute }) {
       <span className="vol-pct">{pct}%</span>
     </div>
   );
+}
+
+function GeoUsageStatus({ room }) {
+  const usage = room.geoUsage || { loads: 0, month: "" };
+  const referencePercent = Math.min(100, usage.loads / 5000 * 100);
+  return <aside className="geo-usage geo-usage-header card" aria-label="Estimated Street View usage">
+    <div className="geo-usage-copy"><span className="eyebrow">STREET VIEW LOADS</span><strong>{usage.loads.toLocaleString()} <small>this month</small></strong></div>
+    <div className="geo-usage-meter" title="Dynamic Street View includes 5,000 free panorama loads per month; additional usage is billed.">
+      <div className="geo-usage-track" role="meter" aria-valuemin="0" aria-valuemax="5000" aria-valuenow={Math.min(5000, usage.loads)}><i style={{ width: `${referencePercent}%` }} /></div>
+      <span>5,000 free panorama loads/month · estimated counter resets if server restarts</span>
+    </div>
+  </aside>;
 }
 
 // ---------- ส่วนย่อย ----------
@@ -385,6 +422,14 @@ export default function App() {
           setQuestion({ ...res.question, offset: res.question.serverNow - Date.now() });
           setMyChoice(res.answered);
         }
+        if (res.playback) {
+          playerRef.current?.play(
+            res.playback.previewUrl,
+            res.playback.positionMs,
+            res.playback.startsAt,
+            res.playback.serverNow - Date.now(),
+          );
+        }
       });
     };
     socket.on("connect", tryRejoin);
@@ -403,7 +448,9 @@ export default function App() {
       setAnsweredCount(0);
       setQuestion({ ...q, offset: q.serverNow - Date.now() });
     });
-    socket.on("question:play", ({ previewUrl, positionMs }) => playerRef.current?.play(previewUrl, positionMs));
+    socket.on("question:play", ({ previewUrl, positionMs, startsAt, serverNow }) => {
+      playerRef.current?.play(previewUrl, positionMs, startsAt, serverNow - Date.now());
+    });
     socket.on("answer:count", ({ answered, total }) => setAnsweredCount(`${answered}/${total}`));
     socket.on("reveal", (r) => {
       playerRef.current?.pause();
@@ -502,7 +549,7 @@ export default function App() {
   const ActiveGameSetup = getGame(room.gameId).HostSetup;
 
   return (
-    <div className="room">
+    <div className={`room${room.gameId === "geo-guessr" ? " geo-room" : ""}`}>
       {!(isHost && phase === "lobby") && <header className="top">
         <nav className="step-flow play-progress" aria-label="Game progress">
           <span className="complete">♫ <i>Choose Quiz</i></span><b>→</b><span className="complete">⚙ <i>Configure</i></span><b>→</b><span className="current">▶ <i>Play</i></span>
@@ -512,6 +559,7 @@ export default function App() {
           <div className="roomcode">{room.code}</div>
         </div>
         <div className="top-actions">
+          {room.gameId === "geo-guessr" && <GeoUsageStatus room={room} />}
           <button className="btn small" onClick={copyLink}>
             {copied ? "คัดลอกแล้ว ✓" : "คัดลอกลิงก์เชิญ"}
           </button>
@@ -528,7 +576,7 @@ export default function App() {
         <div className="lobby-room-actions"><button className="btn small" onClick={copyLink}>{copied ? "Copied ✓" : "↗ Invite"}</button><button className="btn small ghost" onClick={leave}>⌂ หน้าแรก</button></div>
       </header>}
 
-      {room && !(isHost && phase === "lobby") && (
+      {room && room.gameId !== "geo-guessr" && !(isHost && phase === "lobby") && (
         <VolumeControl
           volume={volume}
           muted={muted}
@@ -635,7 +683,7 @@ export default function App() {
             </div>
             <h2>เพลงอะไรเอ่ย?</h2>
             <p className="muted small">
-              {isHost ? "เพลงกำลังเล่นจากเครื่องของคุณ" : "ฟังเสียงจากเครื่องของ host"}
+              เพลงกำลังเล่นจากเครื่องของคุณ
             </p>
           </div>
           <div className="options">
@@ -734,6 +782,7 @@ export default function App() {
           </section>
         );
       })()}
+
     </div>
   );
 }
