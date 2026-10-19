@@ -1,68 +1,94 @@
-# Song Trivia
-## Import playlists from Spotify
+# SongTrivia
 
-To enable Spotify imports, create an app in the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard), add this redirect URI to the app settings, and add the credentials to the server environment:
+เว็บเกมเล่นกับเพื่อนแบบเรียลไทม์ สร้างห้องแล้วแชร์รหัสหรือลิงก์เชิญให้เพื่อนเข้าร่วมได้ ปัจจุบันมีเกมให้เลือก 2 แบบ:
 
-- Local development redirect URI: `http://127.0.0.1:5173/api/spotify/callback`
-- `SPOTIFY_CLIENT_ID=your_client_id`
-- `SPOTIFY_CLIENT_SECRET=your_client_secret`
-- Optional for deployment: `SPOTIFY_REDIRECT_URI=https://your-domain.example/api/spotify/callback`
+- **Song Trivia** — ฟังเพลงตัวอย่างจากเพลย์ลิสต์ แล้วแข่งกันทายชื่อเพลงและศิลปิน
+- **World Guess** — ดู Street View ปักหมุดตำแหน่งบนแผนที่ แล้วสะสมคะแนนจากความแม่นยำ
 
-Keep the client secret on the server and out of browser code. Set these variables in the terminal before starting the app, or add them to your hosting provider's server environment (Vite's `.env` values are not loaded by the Node server):
+## สิ่งที่ต้องมี
 
-PowerShell:
-
-    $env:SPOTIFY_CLIENT_ID="your_client_id"
-    $env:SPOTIFY_CLIENT_SECRET="your_client_secret"
-    $env:SPOTIFY_REDIRECT_URI="http://127.0.0.1:5173/api/spotify/callback"
-    npm run dev
-
-Open the local app at `http://127.0.0.1:5173` when using Spotify. Spotify no longer accepts `localhost` as an OAuth redirect URI, and the app and callback need to use the same host so the login session cookie is shared.
-
-In the lobby's **Choose Quiz → Configure** page, connect Spotify, paste a playlist link, and choose **Import playlist**. The app reads playlist metadata through Spotify after you authorize it, then searches Deezer for matching tracks with playable previews. Tracks without a Deezer preview are skipped; at least four matched tracks are needed to start a round. Spotify currently limits playlist item access to playlists the connected account owns or can edit.
-
-### Import steps
-
-1. Create a Spotify developer app and register the callback URL above.
-2. Set the two Spotify credentials in the server environment (and the public callback URL when deployed).
-3. Restart the app, connect Spotify in the quiz setup, and paste the playlist URL.
-4. Import it; matched Deezer previews are added to the selected playlist list.
-
-## World Guess setup
-
-World Guess is a private multiplayer geography game in this app. Add a Google Maps Embed API key to a local .env file before starting Vite:
-
-    VITE_GOOGLE_MAPS_EMBED_KEY=your_restricted_maps_embed_key
-
-Enable Maps Embed API in Google Cloud. Restrict the key to Maps Embed API and to the website referrers you use. The key is sent to browsers to display Street View, so never use an unrestricted key. Do not commit .env.
-
-The guess map uses Leaflet with OpenStreetMap tiles and displays its required attribution.
-
-เกมทายเพลงแบบเรียลไทม์ เล่นกับเพื่อนด้วยรหัสห้อง 4 ตัว Host เลือกเพลย์ลิสต์สาธารณะจาก Deezer แล้วทุกคนฟังคลิปพรีวิวและตอบให้เร็วที่สุด
+- Node.js 18 ขึ้นไป และ npm
+- Spotify Developer App เฉพาะกรณีต้องการนำเข้าเพลย์ลิสต์ Spotify
+- Google Maps Embed API key เฉพาะกรณีต้องการเล่น World Guess
 
 ## เริ่มเล่นในเครื่อง
-
-ต้องใช้ Node.js 18 ขึ้นไป
 
 ```bash
 npm install
 npm run dev
 ```
 
-เปิดเว็บที่ Vite แสดงใน terminal ผู้เล่นเข้าห้องด้วยรหัสหรือเปิดลิงก์ที่ host แชร์ให้ ไม่ต้องใช้บัญชีหรือ API key เพลง
+เปิด URL ที่ Vite แสดงใน terminal (ปกติคือ `http://localhost:5173`) จากนั้นสร้างห้องหรือเข้าห้องด้วยรหัส ห้องหนึ่งรองรับผู้เล่นได้สูงสุด 12 คน เจ้าของห้องเลือกเกมและตั้งค่าก่อนเริ่มเล่น
+
+สำหรับ Spotify ให้เปิดเว็บด้วย `http://127.0.0.1:5173` ตามขั้นตอนด้านล่าง เพื่อให้ URL ตรงกับ OAuth redirect URI
+
+## นำเข้าเพลย์ลิสต์ Spotify
+
+ปุ่ม Spotify ในหน้าตั้งค่าเกมจะเปิดหน้าต่างเชื่อมบัญชีและเพิ่มเพลย์ลิสต์ การเชื่อมต่อจำเป็นต้องใช้ **Client ID และ Client Secret ของแอป Spotify Developer** ซึ่งตั้งไว้ฝั่งเซิร์ฟเวอร์ ไม่ใช่แค่กดเชื่อมบัญชีอย่างเดียว
+
+1. สร้างแอปที่ [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
+2. ใน Redirect URIs ของแอป เพิ่ม `http://127.0.0.1:5173/api/spotify/callback` แล้วบันทึก
+3. ตั้งค่าตัวแปรต่อไปนี้ใน PowerShell ก่อนเริ่มแอป:
+
+   ```powershell
+   $env:SPOTIFY_CLIENT_ID="ใส่-client-id"
+   $env:SPOTIFY_CLIENT_SECRET="ใส่-client-secret"
+   $env:SPOTIFY_REDIRECT_URI="http://127.0.0.1:5173/api/spotify/callback"
+   npm run dev
+   ```
+
+4. เปิด `http://127.0.0.1:5173` เชื่อมบัญชี Spotify แล้ววางลิงก์เพลย์ลิสต์
+
+อย่าเปิดเว็บผ่าน `localhost` ในขั้นตอนนี้ เพราะ Spotify ต้องการให้ host ของเว็บตรงกับ redirect URI ที่ตั้งไว้ และอย่าใส่ Client Secret ในโค้ดหน้าเว็บหรือ commit ลง Git
+
+หลังนำเข้า แอปจะใช้ข้อมูลเพลย์ลิสต์จาก Spotify เพื่อค้นหาเพลงที่มี preview บน Deezer เพลงที่ไม่มี preview จะไม่ถูกนำมาเล่น และต้องมีเพลงที่จับคู่ได้อย่างน้อย 4 เพลง เพลย์ลิสต์ต้องเป็นรายการที่บัญชีที่เชื่อมต่อมีสิทธิ์ดู
+
+## ตั้งค่า World Guess
+
+เกมนี้ใช้ Google Maps Embed API แสดง Street View และใช้ Leaflet/OpenStreetMap สำหรับแผนที่ปักหมุด สร้างไฟล์ `.env` ที่ root ของโปรเจกต์ แล้วใส่:
+
+```dotenv
+VITE_GOOGLE_MAPS_EMBED_KEY=your_google_maps_embed_api_key
+```
+
+เปิดใช้ **Maps Embed API** ใน Google Cloud Console และจำกัด API key ให้ใช้ได้เฉพาะ API นี้กับเว็บไซต์ของคุณ จากนั้นเริ่ม Vite ใหม่ เกมมีชุดสถานที่ World Mix, Famous Places และ Thailand; เจ้าของห้องเลือกจำนวนรอบได้ 3, 5, 10 หรือ 15 ตำแหน่ง ผู้เล่นมีเวลาต่อรอบตามค่าที่ตั้งในห้อง และได้สูงสุด 5,000 คะแนนต่อจุด
+
+## เพิ่มเกมใหม่
+
+เกมแต่ละเกมแยกเป็นโฟลเดอร์ย่อยใน `src/games/` และลงทะเบียนเกมใน `src/games/registry.js` โครงสร้างปัจจุบัน:
+
+```text
+src/games/
+├── registry.js
+├── song-trivia/
+└── geo-guessr/
+```
+
+เพิ่มโฟลเดอร์ของเกมใหม่พร้อมหน้าตั้งค่าและหน้าการเล่น แล้วลงทะเบียนเกมใน registry เพื่อให้ปรากฏใน lobby
+
+## คำสั่งที่ใช้บ่อย
+
+| คำสั่ง | รายละเอียด |
+| --- | --- |
+| `npm run dev` | เริ่มเซิร์ฟเวอร์เกมและเว็บสำหรับพัฒนา |
+| `npm run build` | สร้างไฟล์เว็บสำหรับนำไป deploy |
+| `npm start` | เริ่ม Express และ Socket.IO สำหรับใช้งานจริง |
+| `npm test` | รันการตรวจสอบฝั่งเซิร์ฟเวอร์ |
 
 ## Deploy
 
-แอปนี้ใช้ Express และ Socket.IO สำหรับห้องเกม จึงต้อง deploy เป็น Node web service ที่รองรับ WebSocket เช่น Render โดยตั้งค่า:
+แอปต้องรันเป็น Node.js web service ที่รองรับ WebSocket/Socket.IO ไม่ใช่โฮสต์ไฟล์ static อย่างเดียว ใช้คำสั่ง:
 
-- Build command: `npm install && npm run build`
-- Start command: `npm start`
-- ใช้ Node.js 18 หรือใหม่กว่า
+- Build: `npm install && npm run build`
+- Start: `npm start`
 
-Host ค้นหา playlist จาก Deezer public API ผ่าน server proxy แล้วเล่นตัวอย่างเสียง 30 วินาทีจากเครื่อง host ผู้เล่นคนอื่นฟังเสียงจากลำโพง/การแชร์เสียงของ host
+กำหนด `PORT` ตามที่แพลตฟอร์ม deploy จัดให้ หากเปิดใช้ Spotify ให้ตั้ง `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` และ `SPOTIFY_REDIRECT_URI` ใน environment ของเซิร์ฟเวอร์ ตัวอย่าง redirect URI สำหรับโดเมนจริงคือ `https://your-domain.example/api/spotify/callback` และต้องเพิ่ม URL เดียวกันใน Spotify Developer Dashboard ด้วย
 
-## ข้อจำกัด
+กำหนด `VITE_GOOGLE_MAPS_EMBED_KEY` ก่อน build หากต้องการเปิดใช้ World Guess เพราะค่านี้จะถูกรวมอยู่ในไฟล์เว็บที่ส่งให้เบราว์เซอร์ จึงควรจำกัด key ด้วย HTTP referrer และ Maps Embed API
 
-- Deezer ส่งคลิปตัวอย่างให้เฉพาะเพลงที่มี preview เท่านั้น เกมต้องมีเพลงตัวอย่างอย่างน้อย 4 เพลง
-- ห้องเก็บในหน่วยความจำของ server instance เดียว เหมาะกับเกมกลุ่มเพื่อนและ deploy แบบ instance เดียว
-- เสียงเล่นบนเครื่อง host; ให้เพื่อนฟังผ่านลำโพงหรือแชร์เสียงจากแอปประชุม
+## หมายเหตุ
+
+- ห้องและสถานะเกมเก็บในหน่วยความจำของเซิร์ฟเวอร์ instance เดียว เมื่อรีสตาร์ตเซิร์ฟเวอร์ ห้องที่กำลังเล่นจะหายไป
+- เสียง preview ของ Song Trivia เล่นจากอุปกรณ์เจ้าของห้อง ผู้เล่นคนอื่นฟังเสียงจากเจ้าของห้องหรือช่องทางแชร์เสียงร่วมกัน
+- Avatar ที่อัปโหลดและข้อมูลผู้เล่นบางส่วนเก็บไว้ในเบราว์เซอร์และส่งให้สมาชิกในห้อง
+- อย่า commit ไฟล์ `.env` หรือ credentials ส่วนตัว ไฟล์ `.env` ถูกละเว้นโดย Git อยู่แล้ว
