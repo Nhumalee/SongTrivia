@@ -19,6 +19,15 @@ export async function searchPlaylists(query) {
   }));
 }
 
+export async function searchTracks(query) {
+  const data = await api(`search/track?q=${encodeURIComponent(query)}&limit=8`);
+  return (data.data || []).filter((track) => track.preview).map((track) => ({
+    uri: `deezer:track:${track.id}`, title: track.title, artist: track.artist?.name || "Unknown artist",
+    primaryArtist: track.artist?.name || "Unknown artist", durationMs: 30000,
+    cover: track.album?.cover_medium || null, previewUrl: track.preview,
+  }));
+}
+
 export async function getPlaylist(id) {
   const p = await api(`playlist/${encodeURIComponent(id)}?limit=100`);
   const tracks = (p.tracks?.data || []).filter((t) => t.preview).map((t) => ({

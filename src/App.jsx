@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { socket } from "./socket.js";
-import HostSetup from "./HostSetup.jsx";
+import { getGame } from "./games/registry.js";
+import GeoGame from "./games/geo-guessr/GeoGame.jsx";
 
 const SHAPES = ["▲", "◆", "●", "■"];
 const SESSION_KEY = "st_session";
 const AVATARS = ["momo", "kai", "lily", "tae", "jun", "pond"];
 const AVATAR_NAMES = { momo: "Momo", kai: "Kai", lily: "Lily", tae: "Tae", jun: "Jun", pond: "Pond" };
-const avatarUrl = (id) => `/avatar/${AVATARS.includes(id) ? id : "momo"}.png`;
+const MAX_AVATAR_DATA_URL = 60_000;
+const isCustomAvatar = (value) => typeof value === "string" && value.length <= MAX_AVATAR_DATA_URL && /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value);
+const normalizeAvatar = (value) => AVATARS.includes(value) ? value : isCustomAvatar(value) ? value : AVATARS[0];
+const avatarUrl = (id) => isCustomAvatar(id) ? id : `/avatar/${AVATARS.includes(id) ? id : "momo"}.png`;
 const resultTaunts = {
   correct: ["เออ รอบนี้ฉลาดขึ้นมานิดนึงนะ", "หูดีว่ะ วันนี้ไม่กาก", "เก่งชิบหาย เอาไป + คะแนน", "ถูกได้ไงวะเนี่ย ยอมก็ได้"],
   wrong: ["โง่ฉิบหาย ใบ้แทบเฉลยอยู่แล้ว", "หูมึงมีไว้ครอบหัวเหรอ?", "มั่วได้เหี้ยมาก ผิดเต็ม ๆ", "สมองมีไว้ฟังเพลงด้วยนะเพื่อน", "ตอบแบบนี้อย่าตอบเลยไอ้เวร", "เพลงดังขนาดนี้ยังโง่ทายผิดอีก"],
@@ -18,21 +22,54 @@ const chooseResultTaunt = (kind, seed = "") => {
 };
 
 function AvatarPicker({ value, onChange, compact = false }) {
+  const inputRef = useRef(null);
+  const [uploadError, setUploadError] = useState("");
+  const readImage = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    setUploadError("");
+    if (!file) return;
+    if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type)) return setUploadError("รองรับไฟล์ PNG, JPG, WEBP หรือ GIF");
+    if (file.size > 8 * 1024 * 1024) return setUploadError("ไฟล์ใหญ่เกินไป (สูงสุด 8 MB)");
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      if (image.naturalWidth > 8192 || image.naturalHeight > 8192) { URL.revokeObjectURL(objectUrl); return setUploadError("ความละเอียดรูปสูงเกินไป"); }
+      const side = 96;
+      const canvas = document.createElement("canvas");
+      canvas.width = side;
+      canvas.height = side;
+      const context = canvas.getContext("2d");
+      const cropSide = Math.min(image.naturalWidth, image.naturalHeight);
+      context.drawImage(image, (image.naturalWidth - cropSide) / 2, (image.naturalHeight - cropSide) / 2, cropSide, cropSide, 0, 0, side, side);
+      URL.revokeObjectURL(objectUrl);
+      let dataUrl = canvas.toDataURL("image/webp", 0.76);
+      if (dataUrl.length > MAX_AVATAR_DATA_URL) dataUrl = canvas.toDataURL("image/jpeg", 0.58);
+      if (!isCustomAvatar(dataUrl)) return setUploadError("รูปมีขนาดใหญ่เกินไป ลองเลือกรูปอื่น");
+      onChange(dataUrl);
+    };
+    image.onerror = () => { URL.revokeObjectURL(objectUrl); setUploadError("เปิดไฟล์รูปนี้ไม่ได้"); };
+    image.src = objectUrl;
+  };
   return <div className={`avatar-picker${compact ? " compact" : ""}`}>
     <span className="avatar-picker-label">Choose your avatar</span>
-    <div className="avatar-options">{AVATARS.map((item) => <button key={item} type="button" className={`avatar-option${value === item ? " active" : ""}`} aria-label={AVATAR_NAMES[item]} title={AVATAR_NAMES[item]} aria-pressed={value === item} onClick={() => onChange(item)}><img src={avatarUrl(item)} alt="" /></button>)}</div>
+    <div className="avatar-options">{AVATARS.map((item) => <button key={item} type="button" className={`avatar-option${value === item ? " active" : ""}`} aria-label={AVATAR_NAMES[item]} title={AVATAR_NAMES[item]} aria-pressed={value === item} onClick={() => { setUploadError(""); onChange(item); }}><img src={avatarUrl(item)} alt="" /></button>)}<button type="button" className={`avatar-option avatar-upload${isCustomAvatar(value) ? " active" : ""}`} aria-label="Upload avatar from device" title="Upload avatar from device" onClick={() => inputRef.current?.click()}>{isCustomAvatar(value) ? <img src={value} alt="" /> : <span aria-hidden="true">＋</span>}</button><input ref={inputRef} className="avatar-file-input" type="file" accept="image/*" onChange={readImage} /></div>
+    {uploadError && <small className="avatar-upload-error" role="alert">{uploadError}</small>}
   </div>;
 }
 
 const loadSession = () => {
   try {
-    return JSON.parse(localStorage.getItem(SESSION_KEY));
+    // Keep room rejoin scoped to this browser tab so a later visit starts at Home.
+    const legacySession = localStorage.getItem(SESSION_KEY);
+    if (legacySession) localStorage.removeItem(SESSION_KEY);
+    return JSON.parse(sessionStorage.getItem(SESSION_KEY));
   } catch {
     return null;
   }
 };
-const saveSession = (s) => localStorage.setItem(SESSION_KEY, JSON.stringify(s));
-const clearSession = () => localStorage.removeItem(SESSION_KEY);
+const saveSession = (s) => sessionStorage.setItem(SESSION_KEY, JSON.stringify(s));
+const clearSession = () => sessionStorage.removeItem(SESSION_KEY);
 
 // ---------- Deezer preview player (host) ----------
 function usePlayer(enabled, onError) {
@@ -255,7 +292,7 @@ export default function App() {
   const [name, setName] = useState(() => localStorage.getItem("st_name") || "");
   const [avatar, setAvatar] = useState(() => {
     const saved = localStorage.getItem("st_avatar");
-    return AVATARS.includes(saved) ? saved : AVATARS[0];
+    return normalizeAvatar(saved);
   });
   const [session, setSession] = useState(loadSession);
   const [room, setRoom] = useState(null);
@@ -306,7 +343,7 @@ export default function App() {
   }, []);
 
   const chooseAvatar = (nextAvatar) => {
-    if (!AVATARS.includes(nextAvatar)) return;
+    if (!AVATARS.includes(nextAvatar) && !isCustomAvatar(nextAvatar)) return;
     setAvatar(nextAvatar);
     if (room && session) socket.emit("player:avatar", { avatar: nextAvatar });
   };
@@ -462,10 +499,14 @@ export default function App() {
   const meId = session.playerId;
   const me = room.players.find((p) => p.id === meId);
   const phase = room.phase;
+  const ActiveGameSetup = getGame(room.gameId).HostSetup;
 
   return (
     <div className="room">
       {!(isHost && phase === "lobby") && <header className="top">
+        <nav className="step-flow play-progress" aria-label="Game progress">
+          <span className="complete">♫ <i>Choose Quiz</i></span><b>→</b><span className="complete">⚙ <i>Configure</i></span><b>→</b><span className="current">▶ <i>Play</i></span>
+        </nav>
         <div>
           <span className="muted small">รหัสห้อง</span>
           <div className="roomcode">{room.code}</div>
@@ -482,7 +523,12 @@ export default function App() {
 
       {toast && <div className="toast">{toast}</div>}
 
-      {room && (
+      {isHost && phase === "lobby" && <header className="lobby-roombar">
+        <div className="lobby-room-id"><small>ROOM</small><strong>{room.code}</strong><span>●</span><b>Private</b></div>
+        <div className="lobby-room-actions"><button className="btn small" onClick={copyLink}>{copied ? "Copied ✓" : "↗ Invite"}</button><button className="btn small ghost" onClick={leave}>⌂ หน้าแรก</button></div>
+      </header>}
+
+      {room && !(isHost && phase === "lobby") && (
         <VolumeControl
           volume={volume}
           muted={muted}
@@ -504,7 +550,9 @@ export default function App() {
         <div className="lobby-grid">
           <aside className="player-panel">
           <section className="card">
-            <h2>ผู้เล่นในห้อง ({room.players.length})</h2>
+            <h2 className="player-count">PLAYERS {room.players.length}/100</h2>
+            <button className="btn small lobby-invite" onClick={copyLink}>{copied ? "ลิงก์คัดลอกแล้ว ✓" : "↗ เชิญเพื่อนด้วยลิงก์"}</button>
+            {!isHost && <button className="btn small lobby-home" onClick={leave}>⌂ กลับหน้าแรก</button>}
             <AvatarPicker value={me?.avatar || avatar} onChange={chooseAvatar} compact />
             <ul className="players">
               {room.players.map((p) => (
@@ -522,30 +570,34 @@ export default function App() {
                   )}
                 </li>
               ))}
+              {Array.from({ length: Math.max(0, 8 - room.players.length) }, (_, index) => <li className="empty-player" key={`empty-${index}`}><span className="player-avatar" /><span>EMPTY</span></li>)}
             </ul>
           </section>
 
           </aside>
           <div className="lobby-content">
           {isHost ? (
-            <HostSetup
+            <ActiveGameSetup
               room={room}
               picked={picked}
               setPicked={setPicked}
               playerStatus={playerStatus}
               playerRef={playerRef}
               onCopyLink={copyLink}
+              copied={copied}
               onLeave={leave}
+              volumeControl={<VolumeControl volume={volume} muted={muted} ready={playerStatus === "ready"} setVolume={setVolume} toggleMute={toggleMute} />}
             />
           ) : (
             <>
             <section className="card center-text">
               <div className="pulse">⏳</div>
               <h2>รอ host เริ่มเกม</h2>
-              <p className="muted">
+              <p className="muted">Game selected: <strong>{room.gameId === "geo-guessr" ? "World Guess" : room.gameId === "song-trivia" ? "Song Trivia" : "Not selected"}</strong></p>
+              {room.gameId === "geo-guessr" ? <p className="muted">Explore the same Street View location, place one guess, and compare distances with the room.</p> : <p className="muted">
                 เพลย์ลิสต์: {room.playlistName || "ยังไม่ได้เลือก"} · {room.settings.rounds} ข้อ ·{" "}
                 {room.settings.seconds} วินาที/ข้อ
-              </p>
+              </p>}
             </section>
             {room.playlists?.length > 0 && <section className="shared-playlists">
               <h3>Playlist selected by host</h3>
@@ -561,6 +613,10 @@ export default function App() {
           )}
           </div>
         </div>
+      )}
+
+      {(phase === "geo-playing" || phase === "geo-reveal") && (
+        <GeoGame room={room} meId={meId} isHost={isHost} />
       )}
 
       {!starting && ((phase === "question" && question) || (phase === "reveal" && reveal && question)) && (
