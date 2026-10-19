@@ -229,11 +229,11 @@ function RoundRecap({ room, meId, isHost, guess, reveal }) {
   </main>;
 }
 
-export default function GeoGame({ room, meId, isHost }) {
+export default function GeoGame({ room, privateGeoRound, meId, isHost }) {
   const [guess, setGuess] = useState(null);
   const [guessSubmitted, setGuessSubmitted] = useState(false);
   const reportedLoads = useRef(new Set());
-  const round = room.geoRound;
+  const round = privateGeoRound && room.geoRound && privateGeoRound.index === room.geoRound.index ? { ...room.geoRound, ...privateGeoRound } : null;
   const reveal = room.geoReveal;
 
   useEffect(() => { setGuess(null); setGuessSubmitted(false); }, [round?.index]);

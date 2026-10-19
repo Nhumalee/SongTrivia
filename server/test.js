@@ -45,7 +45,7 @@ try {
   await Promise.all([once(host, "connect"), once(p2, "connect"), once(p3, "connect")]);
 
   const c = await emit(host, "room:create", { name: "Host", settings: { rounds: 2, seconds: 10 } });
-  ok(c.ok && /^[A-Z0-9]{4}$/.test(c.code), `สร้างห้อง ได้รหัส ${c.code}`);
+  ok(c.ok && /^[A-Z0-9]{6}$/.test(c.code), `สร้างห้อง ได้รหัส ${c.code}`);
   ok(c.room.settings.rounds === 3, "จำนวนข้อถูก clamp ขั้นต่ำเป็น 3");
 
   const bad = await emit(p2, "room:join", { code: "ZZZZ", name: "X" });

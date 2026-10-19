@@ -11,7 +11,20 @@ const PORT = process.env.PORT || 3001;
 const app = express();
 app.set("trust proxy", 1);
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: true } });
+const developmentOrigins = new Set(["http://localhost:5173", "http://127.0.0.1:5173"]);
+const allowedOrigins = new Set((process.env.APP_ORIGINS || "").split(",").map((origin) => origin.trim()).filter(Boolean));
+const isAllowedOrigin = (origin) => {
+  if (!origin) return process.env.NODE_ENV !== "production";
+  try {
+    const normalized = new URL(origin).origin;
+    return allowedOrigins.has(normalized) || (process.env.NODE_ENV !== "production" && (developmentOrigins.has(normalized) || new URL(normalized).hostname.endsWith(".loca.lt")));
+  } catch { return false; }
+};
+const io = new Server(server, {
+  cors: { origin: (origin, callback) => callback(null, isAllowedOrigin(origin)), methods: ["GET", "POST"] },
+  allowRequest: (request, callback) => callback(null, isAllowedOrigin(request.headers.origin)),
+  maxHttpBufferSize: 128 * 1024,
+});
 
 // Deezer's public API does not send CORS headers; proxy only its public catalog endpoints.
 app.get("/api/deezer/*", async (req, res) => {
@@ -115,6 +128,7 @@ const LIMITS = { rounds: [3, 30], seconds: [8, 60], players: 12, name: 16 };
 const AVATARS = new Set(["momo", "kai", "lily", "tae", "jun", "pond"]);
 const REVEAL_MS = 5000;
 const ROOM_TTL_MS = 1000 * 60 * 60 * 3;
+const MAX_ACTIVE_ROOMS = 200;
 const GEO_PACKS = {
   world: { title: "World Mix", locations: [
   { lat: 35.6895, lng: 139.6917, heading: 150 },
@@ -158,7 +172,7 @@ const GEO_PACKS = {
 const geoMonthlyUsage = new Map();
 function currentGeoUsage() {
   const month = new Date().toISOString().slice(0, 7);
-  return { month, loads: geoMonthlyUsage.get(month) || 0, cap: null, provider: "Google Maps Embed" };
+  return { month, loads: geoMonthlyUsage.get(month) || 0, cap: 5000, provider: "Google Maps Dynamic Street View" };
 }
 
 /** @type {Map<string, any>} */
@@ -177,14 +191,15 @@ function makeCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   for (let t = 0; t < 50; t++) {
     let c = "";
-    for (let i = 0; i < 4; i++) c += chars[Math.floor(Math.random() * chars.length)];
+    const bytes = randomBytes(6);
+    for (let i = 0; i < 6; i++) c += chars[bytes[i] & 31];
     if (!rooms.has(c)) return c;
   }
   throw new Error("no code");
 }
 
 function makeToken() {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+  return randomBytes(32).toString("base64url");
 }
 
 function leaderboard(room) {
@@ -210,7 +225,13 @@ function publicRoom(room) {
     settings: room.settings,
     playlistName: room.playlistName || null,
     playlists: room.playlists || [],
-    geoRound: room.geoRound || null,
+    geoRound: room.geoRound ? {
+      index: room.geoRound.index,
+      total: room.geoRound.total,
+      seconds: room.geoRound.seconds,
+      endsAt: room.geoRound.endsAt,
+      serverNow: room.geoRound.serverNow,
+    } : null,
     geoReveal: room.geoReveal || null,
     geoUsage: currentGeoUsage(),
     geoAnswered: room.geoAnswers?.size || 0,
@@ -250,6 +271,9 @@ function startGeoRound(room) {
   const serverNow = Date.now();
   const endsAt = serverNow + seconds * 1000;
   room.geoRound = { index: room.geoIndex, total: room.geoLocations.length, lat: location.lat, lng: location.lng, heading: location.heading, seconds, endsAt, serverNow };
+  for (const player of room.players.values()) {
+    if (player.connected && player.socketId) io.to(player.socketId).emit("geo:round", room.geoRound);
+  }
   broadcastRoom(room);
   clearTimeout(room.timer);
   room.timer = setTimeout(() => finishGeoRound(room), seconds * 1000 + 100);
@@ -436,8 +460,27 @@ function validQuestion(q) {
 io.on("connection", (socket) => {
   let room = null;
   let playerId = null;
+  const rateWindows = new Map();
 
   const ack = (cb, payload) => typeof cb === "function" && cb(payload);
+  const allowAction = (key, limit, intervalMs) => {
+    const now = Date.now();
+    let window = rateWindows.get(key);
+    if (!window || now - window.startedAt >= intervalMs) {
+      window = { startedAt: now, count: 0 };
+      rateWindows.set(key, window);
+    }
+    window.count += 1;
+    return window.count <= limit;
+  };
+
+  socket.use((_packet, next) => {
+    if (!allowAction("all-events", 180, 10_000)) {
+      socket.disconnect(true);
+      return;
+    }
+    next();
+  });
 
   function attach(r, p) {
     room = r;
@@ -448,7 +491,10 @@ io.on("connection", (socket) => {
     socket.join(r.code);
   }
 
-  socket.on("room:create", ({ name, avatar, settings }, cb) => {
+  socket.on("room:create", ({ name, avatar, settings } = {}, cb) => {
+    if (room) return ack(cb, { ok: false, error: "You are already in a room." });
+    if (!allowAction("room-entry", 5, 60_000)) return ack(cb, { ok: false, error: "Too many room attempts. Wait a minute and try again." });
+    if (rooms.size >= MAX_ACTIVE_ROOMS) return ack(cb, { ok: false, error: "The service is busy. Try again later." });
     const nm = cleanName(name);
     if (!nm) return ack(cb, { ok: false, error: "กรุณาใส่ชื่อของคุณ" });
     const code = makeCode();
@@ -485,7 +531,9 @@ io.on("connection", (socket) => {
     broadcastRoom(r);
   });
 
-  socket.on("room:join", ({ code, name, avatar }, cb) => {
+  socket.on("room:join", ({ code, name, avatar } = {}, cb) => {
+    if (room) return ack(cb, { ok: false, error: "You are already in a room." });
+    if (!allowAction("room-entry", 10, 60_000)) return ack(cb, { ok: false, error: "Too many room attempts. Wait a minute and try again." });
     const r = rooms.get(String(code || "").toUpperCase().trim());
     if (!r) return ack(cb, { ok: false, error: "ไม่พบห้องนี้ ตรวจสอบรหัสอีกครั้ง" });
     if (r.phase !== "lobby") return ack(cb, { ok: false, error: "เกมเริ่มไปแล้ว เข้าร่วมไม่ได้" });
@@ -505,12 +553,13 @@ io.on("connection", (socket) => {
   });
 
   // เชื่อมต่อใหม่หลังรีเฟรช/สัญญาณหลุด
-  socket.on("room:rejoin", ({ code, playerId: pid, token }, cb) => {
+  socket.on("room:rejoin", ({ code, playerId: pid, token } = {}, cb) => {
     const r = rooms.get(String(code || "").toUpperCase());
     const p = r?.players.get(pid);
     if (!r || !p || p.token !== token) return ack(cb, { ok: false });
     attach(r, p);
     const payload = { ok: true, code: r.code, playerId: p.id, room: publicRoom(r) };
+    if (r.phase === "geo-playing") payload.geoRound = r.geoRound;
     if (r.phase === "question") {
       const q = r.questions[r.index];
       const now = Date.now();
@@ -536,7 +585,7 @@ io.on("connection", (socket) => {
     broadcastRoom(r);
   });
 
-  socket.on("player:avatar", ({ avatar }, cb) => {
+  socket.on("player:avatar", ({ avatar } = {}, cb) => {
     const player = room?.players.get(playerId);
     if (!player) return ack(cb, { ok: false });
     player.avatar = cleanAvatar(avatar);
@@ -544,7 +593,7 @@ io.on("connection", (socket) => {
     broadcastRoom(room);
   });
 
-  socket.on("room:settings", ({ settings, playlistName, playlists, gameId }, cb) => {
+  socket.on("room:settings", ({ settings, playlistName, playlists, gameId } = {}, cb) => {
     if (!room || playerId !== room.hostId || room.phase !== "lobby")
       return ack(cb, { ok: false });
     if (settings) {
@@ -567,7 +616,7 @@ io.on("connection", (socket) => {
     broadcastRoom(room);
   });
 
-  socket.on("game:start", ({ questions }, cb) => {
+  socket.on("game:start", ({ questions } = {}, cb) => {
     if (room?.gameId !== "song-trivia") return ack(cb, { ok: false, error: "Song Trivia is not selected." });
     if (!room || playerId !== room.hostId) return ack(cb, { ok: false, error: "เฉพาะ host" });
     if (room.phase !== "lobby" && room.phase !== "finished")
@@ -635,7 +684,7 @@ io.on("connection", (socket) => {
     broadcastRoom(room);
   });
 
-  socket.on("geo:guess", ({ lat, lng }, cb) => {
+  socket.on("geo:guess", ({ lat, lng } = {}, cb) => {
     if (!room || room.phase !== "geo-playing" || !Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 85 || Math.abs(lng) > 180)
       return ack(cb, { ok: false });
     room.geoAnswers.set(playerId, { lat: Number(lat), lng: Number(lng) });
@@ -652,7 +701,7 @@ io.on("connection", (socket) => {
     if (room && playerId === room.hostId) advanceGeoRound(room);
   });
 
-  socket.on("answer", ({ index, choice }, cb) => {
+  socket.on("answer", ({ index, choice } = {}, cb) => {
     if (!room || room.phase !== "question" || index !== room.index)
       return ack(cb, { ok: false });
     if (room.answers.has(playerId)) return ack(cb, { ok: false });
@@ -719,7 +768,7 @@ io.on("connection", (socket) => {
     broadcastRoom(room);
   });
 
-  socket.on("room:kick", ({ id }) => {
+  socket.on("room:kick", ({ id } = {}) => {
     if (!room || playerId !== room.hostId || id === room.hostId) return;
     const p = room.players.get(id);
     if (!p) return;

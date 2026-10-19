@@ -301,18 +301,18 @@ function Home({ name, setName, avatar, setAvatar, busy, error, initialCode, onCr
             <input
               className="input join-code"
               autoComplete="off"
-              maxLength={4}
-              aria-label="Four digit room code"
-              placeholder="— — — —"
+              maxLength={6}
+              aria-label="Six character room code"
+              placeholder="— — — — — —"
               value={code}
               onChange={(e) => {
-                const next = e.target.value.replace(/[^a-z0-9]/gi, "").slice(0, 4).toUpperCase();
+                const next = e.target.value.replace(/[^a-z0-9]/gi, "").slice(0, 6).toUpperCase();
                 setCode(next);
               }}
-              onKeyDown={(e) => e.key === "Enter" && code.length === 4 && name.trim() && !busy && onJoin(code)}
+              onKeyDown={(e) => e.key === "Enter" && code.length === 6 && name.trim() && !busy && onJoin(code)}
             />
-            <p className="join-hint">Enter the 4-character code, then join the lobby.</p>
-            <button className="btn join-cta" disabled={busy || code.length !== 4 || !name.trim()} onClick={() => onJoin(code)}>
+            <p className="join-hint">Enter the 6-character code, then join the lobby.</p>
+            <button className="btn join-cta" disabled={busy || code.length !== 6 || !name.trim()} onClick={() => onJoin(code)}>
               {busy ? "Joining lobby…" : "Join lobby"}<b>›</b>
             </button>
           </section>
@@ -333,6 +333,7 @@ export default function App() {
   });
   const [session, setSession] = useState(loadSession);
   const [room, setRoom] = useState(null);
+  const [privateGeoRound, setPrivateGeoRound] = useState(null);
   const [question, setQuestion] = useState(null);
   const [myChoice, setMyChoice] = useState(null);
   const [answeredCount, setAnsweredCount] = useState(null);
@@ -392,6 +393,7 @@ export default function App() {
     setMyChoice(null);
     setAnsweredCount(null);
     setStarting(false);
+    setPrivateGeoRound(null);
   };
 
   const leaveLocal = (msg) => {
@@ -418,6 +420,7 @@ export default function App() {
         }
         setSession(s);
         setRoom(res.room);
+        setPrivateGeoRound(res.geoRound || null);
         if (res.question) {
           setQuestion({ ...res.question, offset: res.question.serverNow - Date.now() });
           setMyChoice(res.answered);
@@ -435,7 +438,11 @@ export default function App() {
     socket.on("connect", tryRejoin);
     if (socket.connected) tryRejoin();
 
-    socket.on("room:update", setRoom);
+    socket.on("room:update", (nextRoom) => {
+      setRoom(nextRoom);
+      if (nextRoom.phase !== "geo-playing") setPrivateGeoRound(null);
+    });
+    socket.on("geo:round", setPrivateGeoRound);
     socket.on("game:starting", () => {
       resetGameState();
       setStarting(true);
@@ -477,6 +484,7 @@ export default function App() {
     saveSession(s);
     setSession(s);
     setRoom(res.room);
+    setPrivateGeoRound(res.geoRound || null);
     resetGameState();
     window.history.replaceState({}, "", "/");
   };
@@ -664,7 +672,7 @@ export default function App() {
       )}
 
       {(phase === "geo-playing" || phase === "geo-reveal") && (
-        <GeoGame room={room} meId={meId} isHost={isHost} />
+        <GeoGame room={room} privateGeoRound={privateGeoRound} meId={meId} isHost={isHost} />
       )}
 
       {!starting && ((phase === "question" && question) || (phase === "reveal" && reveal && question)) && (

@@ -9,7 +9,7 @@
 
 - Node.js 18 ขึ้นไป และ npm
 - Spotify Developer App เฉพาะกรณีต้องการนำเข้าเพลย์ลิสต์ Spotify
-- Google Maps Embed API key เฉพาะกรณีต้องการเล่น World Guess
+- Google Maps JavaScript API key เฉพาะกรณีต้องการเล่น World Guess
 
 ## เริ่มเล่นในเครื่อง
 
@@ -45,13 +45,13 @@ npm run dev
 
 ## ตั้งค่า World Guess
 
-เกมนี้ใช้ Google Maps Embed API แสดง Street View และใช้ Leaflet/OpenStreetMap สำหรับแผนที่ปักหมุด สร้างไฟล์ `.env` ที่ root ของโปรเจกต์ แล้วใส่:
+เกมนี้ใช้ Google Maps JavaScript API แสดง Street View และใช้ Google Maps JavaScript API สำหรับแผนที่ปักหมุด สร้างไฟล์ `.env` ที่ root ของโปรเจกต์ แล้วใส่:
 
 ```dotenv
-VITE_GOOGLE_MAPS_EMBED_KEY=your_google_maps_embed_api_key
+VITE_GOOGLE_MAPS_MAP_KEY=your_google_maps_javascript_api_key
 ```
 
-เปิดใช้ **Maps Embed API** ใน Google Cloud Console และจำกัด API key ให้ใช้ได้เฉพาะ API นี้กับเว็บไซต์ของคุณ จากนั้นเริ่ม Vite ใหม่ เกมมีชุดสถานที่ World Mix, Famous Places และ Thailand; เจ้าของห้องเลือกจำนวนรอบได้ 3, 5, 10 หรือ 15 ตำแหน่ง ผู้เล่นมีเวลาต่อรอบตามค่าที่ตั้งในห้อง และได้สูงสุด 5,000 คะแนนต่อจุด
+เปิดใช้ **Maps JavaScript API** และ Dynamic Street View ใน Google Cloud Console จากนั้นจำกัด API key ด้วย HTTP referrer ของเว็บไซต์และอนุญาตเฉพาะ Maps JavaScript API กับ Geocoding API (ใช้เมื่อค้นหาพื้นที่) แล้วเริ่ม Vite ใหม่ เกมมีชุดสถานที่ World Mix, Famous Places และ Thailand; เจ้าของห้องเลือกจำนวนรอบได้ 3, 5, 10 หรือ 15 ตำแหน่ง ผู้เล่นมีเวลาต่อรอบตามค่าที่ตั้งในห้อง และได้สูงสุด 5,000 คะแนนต่อจุด
 
 ## เพิ่มเกมใหม่
 
@@ -84,7 +84,7 @@ src/games/
 
 กำหนด `PORT` ตามที่แพลตฟอร์ม deploy จัดให้ หากเปิดใช้ Spotify ให้ตั้ง `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` และ `SPOTIFY_REDIRECT_URI` ใน environment ของเซิร์ฟเวอร์ ตัวอย่าง redirect URI สำหรับโดเมนจริงคือ `https://your-domain.example/api/spotify/callback` และต้องเพิ่ม URL เดียวกันใน Spotify Developer Dashboard ด้วย
 
-กำหนด `VITE_GOOGLE_MAPS_EMBED_KEY` ก่อน build หากต้องการเปิดใช้ World Guess เพราะค่านี้จะถูกรวมอยู่ในไฟล์เว็บที่ส่งให้เบราว์เซอร์ จึงควรจำกัด key ด้วย HTTP referrer และ Maps Embed API
+กำหนด `VITE_GOOGLE_MAPS_MAP_KEY` ก่อน build หากต้องการเปิดใช้ World Guess เพราะค่านี้จะถูกรวมอยู่ในไฟล์เว็บที่ส่งให้เบราว์เซอร์ จึงต้องจำกัด key ด้วย HTTP referrer และ API restrictions ดูขั้นตอนสำหรับ Render ใน [RENDER_SECURITY.md](./RENDER_SECURITY.md)
 
 ## หมายเหตุ
 
