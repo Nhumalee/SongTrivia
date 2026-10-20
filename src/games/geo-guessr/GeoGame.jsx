@@ -3,30 +3,41 @@ import { socket } from "../../socket.js";
 
 const MAP_KEY = import.meta.env.VITE_GOOGLE_MAPS_MAP_KEY || import.meta.env.VITE_GOOGLE_MAPS_MAPS_KEY || "";
 const PACK_NAMES = { world: "World", famous: "Famous Places", thailand: "Thailand", continents: "Continents", stadiums: "Football Stadiums" };
+const MAPS_REFERRER = `${window.location.origin}/*`;
+const MAPS_SETUP_HINT = `Allow ${MAPS_REFERRER} in the API key's HTTP referrer restrictions. In Render, set VITE_GOOGLE_MAPS_MAP_KEY in the build environment and redeploy. Enable Maps JavaScript API and Dynamic Street View, and check billing.`;
 
 function loadGoogleMaps() {
-  if (window.google?.maps) return Promise.resolve(window.google.maps);
+  const existingMaps = window.google?.maps;
+  if (existingMaps?.Map && existingMaps?.StreetViewPanorama) return Promise.resolve(existingMaps);
   if (!window.__geoGoogleMapsPromise) {
     window.gm_authFailure = () => window.dispatchEvent(new Event("geo-google-auth-failure"));
     window.__geoGoogleMapsPromise = (async () => {
       let lastError;
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
-          return await new Promise((resolve, reject) => {
-            const script = document.createElement("script");
-            const timeout = setTimeout(() => reject(new Error("Google Maps did not load")), 15000);
-            script.id = "geo-google-maps-js";
-            script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(MAP_KEY)}&v=weekly&loading=async`;
-            script.async = true;
-            script.onload = () => {
-              clearTimeout(timeout);
-              const maps = window.google?.maps;
-              if (maps) resolve(maps);
-              else reject(new Error("Google Maps loaded without its API namespace"));
-            };
-            script.onerror = () => { clearTimeout(timeout); reject(new Error("Google Maps failed to load")); };
-            document.head.appendChild(script);
-          });
+          let maps = window.google?.maps;
+          if (!maps) {
+            maps = await new Promise((resolve, reject) => {
+              const script = document.createElement("script");
+              const timeout = setTimeout(() => reject(new Error("Google Maps did not load")), 15000);
+              script.id = "geo-google-maps-js";
+              script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(MAP_KEY)}&v=weekly&loading=async`;
+              script.async = true;
+              script.onload = () => {
+                clearTimeout(timeout);
+                const loadedMaps = window.google?.maps;
+                if (loadedMaps) resolve(loadedMaps);
+                else reject(new Error("Google Maps loaded without its API namespace"));
+              };
+              script.onerror = () => { clearTimeout(timeout); reject(new Error("Google Maps failed to load")); };
+              document.head.appendChild(script);
+            });
+          }
+          if (typeof maps.importLibrary === "function") await maps.importLibrary("maps");
+          if (typeof maps.Map !== "function" || typeof maps.StreetViewPanorama !== "function") {
+            throw new Error("Google Maps loaded before the Maps library was ready");
+          }
+          return maps;
         } catch (error) {
           lastError = error;
           document.getElementById("geo-google-maps-js")?.remove();
@@ -143,7 +154,7 @@ function GeoMap({ guess, onGuess, answer, compact = false }) {
   return <div className={`geo-map-wrap${compact ? " compact" : ""}`}>
     <div className="geo-map-title"><strong>WORLD MAP</strong><span>Countries &amp; place names</span></div>
     <div ref={containerRef} className="geo-map" role="application" aria-label="Click the map to place or move your guess." />
-    {mapError && <div className="geo-map-error" role="status"><strong>Google Maps unavailable</strong><span>{mapError}</span><small>Allow http://127.0.0.1:5173/* and http://localhost:5173/* in HTTP referrer restrictions, and enable Maps JavaScript API.</small></div>}
+    {mapError && <div className="geo-map-error" role="status"><strong>Google Maps unavailable</strong><span>{mapError}</span><small>{MAPS_SETUP_HINT}</small></div>}
     {!mapError && !ready && <div className="geo-map-loading" role="status">Loading Google Maps…</div>}
     <div className="geo-map-hint">{answer ? "Actual location and your latest pin" : guess ? "Click anywhere to move your pin" : "Click the map to place your pin"} · Google Maps</div>
   </div>;
@@ -230,7 +241,7 @@ function StreetView({ round, onLoad }) {
 
   return <>
     <div ref={containerRef} className="geo-street-view" aria-label="Google Street View panorama" />
-    {error && <div className="geo-street-error" role="status"><strong>Street View unavailable</strong><span>{error}</span><small>Allow this website in the API key's HTTP referrer restrictions and enable Maps JavaScript API. Only panoramas identified as outdoors are shown.</small></div>}
+    {error && <div className="geo-street-error" role="status"><strong>Street View unavailable</strong><span>{error}</span><small>{MAPS_SETUP_HINT}</small></div>}
     {!error && loading && <div className="geo-panorama-loading" role="status">Loading Street View…</div>}
   </>;
 }
